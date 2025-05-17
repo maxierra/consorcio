@@ -1,0 +1,7 @@
+Número,Tipo,Nombre del Propietario,Email del Propietario,Teléfono del Propietario,Coeficiente,Expensas Ordinarias A,Expensas Ordinarias B,Expensas Aysa
+101,Departamento,Juan Pérez,juan@ejemplo.com,1155667788,10.5,SI,SI,SI
+102,Departamento,María García,maria@ejemplo.com,1144556677,8.3,SI,SI,SI
+103,Cochera,Carlos López,carlos@ejemplo.com,1133445566,2.1,SI,NO,SI
+104,Local,Ana Martínez,ana@ejemplo.com,1122334455,15.2,SI,NO,SI
+105,Departamento,Roberto Sánchez,roberto@ejemplo.com,1111223344,9.8,SI,SI,SI
+106,Baulera,Laura Rodríguez,laura@ejemplo.com,1100112233,1.2,SI,NO,SI

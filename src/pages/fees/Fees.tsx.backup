@@ -1,0 +1,876 @@
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabaseClient';
+import { Building, Calendar, Settings } from 'lucide-react';
+import Select from '../../components/ui/Select';
+import InterestConfigDialog from '../../components/InterestConfigDialog';
+import PaymentConfirmationDialog from '../../components/PaymentConfirmationDialog';
+
+interface Condominium {
+  id: string;
+  name: string;
+}
+
+interface Fee {
+  id: string;
+  month: number;
+  year: number;
+  total_amount: number;
+  generated_date: string;
+  condominium: Condominium;
+}
+
+interface Unit {
+  id: string;
+  number: string;
+  owner_name: string;
+  coefficient: number;
+  type: string;
+  paid?: boolean;
+  payment_id?: string;
+  payment_date?: string;
+  previous_balance?: number;
+  total_due?: number;
+  debt_registered?: boolean;
+}
+
+interface ProviderInvoice {
+  id: string;
+  amount: number;
+  month: number;
+  year: number;
+  status: string;
+}
+
+interface EmployeeCompensation {
+  id: string;
+  total_compensation: number;
+  month: number;
+  year: number;
+}
+
+interface ExpensePayment {
+  id: string;
+  condominium_id: string;
+  unit_id: string;
+  month: number;
+  year: number;
+  amount: number;
+  payment_date: string;
+  regularized: boolean;
+  regularization_date?: string;
+}
+
+const MONTHS = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
+
+export default function Fees() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [condominiums, setCondominiums] = useState<Condominium[]>([]);
+  const [selectedCondominium, setSelectedCondominium] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [fees, setFees] = useState<Fee[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [interestConfigOpen, setInterestConfigOpen] = useState(false);
+  // Usamos payments para actualizar el estado de las unidades
+  const [, setPayments] = useState<ExpensePayment[]>([]);
+  const [savingPayment, setSavingPayment] = useState<string | null>(null);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
+  const [suggestedAmount, setSuggestedAmount] = useState(0);
+  const [closingPeriod, setClosingPeriod] = useState(false);
+  const [periodClosed, setPeriodClosed] = useState(false);
+
+  useEffect(() => {
+    fetchCondominiums();
+  }, []);
+
+  useEffect(() => {
+    if (selectedCondominium) {
+      fetchUnits();
+      if (selectedMonth && selectedYear) {
+        fetchFees();
+        fetchPayments();
+      }
+    } else {
+      setUnits([]);
+      setFees([]);
+      setPayments([]);
+    }
+  }, [selectedCondominium, selectedMonth, selectedYear]);
+
+  const fetchUnits = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('units')
+        .select('id, number, owner_name, coefficient, type')
+        .eq('condominium_id', selectedCondominium);
+
+      if (error) throw error;
+      
+      // Ordenar las unidades numéricamente (considerando que pueden ser alfanuméricas)
+      const sortedUnits = [...(data || [])].sort((a, b) => {
+        // Extraer los números de las cadenas y convertirlos a enteros para comparación
+        const numA = parseInt(a.number.replace(/[^0-9]/g, '')) || 0;
+        const numB = parseInt(b.number.replace(/[^0-9]/g, '')) || 0;
+        return numA - numB;
+      });
+      
+      setUnits(sortedUnits);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al cargar las unidades');
+    }
+  };
+  
+  const fetchPayments = async () => {
+    try {
+      if (!selectedCondominium || !selectedMonth || !selectedYear) return;
+      
+      console.log('Buscando pagos para:', { selectedCondominium, selectedMonth, selectedYear });
+      
+      // Verificar si el período está cerrado (buscando registros con payment_status='unpaid')
+      const { data: periodStatus, error: periodStatusError } = await supabase
+        .from('expense_payments')
+        .select('id, amount, unit_id, payment_status')
+        .eq('condominium_id', selectedCondominium)
+        .eq('month', selectedMonth)
+        .eq('year', selectedYear)
+        .eq('payment_status', 'unpaid');
+        
+      if (periodStatusError) throw periodStatusError;
+      
+      console.log('Registros de deuda encontrados:', periodStatus);
+      
+      // Si hay registros con payment_status='unpaid', el período está cerrado
+      const isClosed = periodStatus && periodStatus.length > 0;
+      setPeriodClosed(isClosed);
+      console.log('Período cerrado:', isClosed);
+      
+      // Obtener pagos del mes actual
+      const { data: currentPayments, error: currentError } = await supabase
+        .from('expense_payments')
+        .select('*')
+        .eq('condominium_id', selectedCondominium)
+        .eq('month', selectedMonth)
+        .eq('year', selectedYear);
+        
+      if (currentError) throw currentError;
+      
+      console.log('Pagos del mes actual:', currentPayments);
+      
+      setPayments(currentPayments || []);
+      
+      // Obtener todos los pagos históricos para calcular saldos anteriores
+      const { data: allPayments, error: allPaymentsError } = await supabase
+        .from('expense_payments')
+        .select('*')
+        .eq('condominium_id', selectedCondominium);
+        
+      if (allPaymentsError) throw allPaymentsError;
+      
+      console.log('Todos los pagos históricos:', allPayments);
+      
+      // Verificar si hay pagos para meses anteriores
+      const previousMonthsPayments = (allPayments || []).filter(payment => {
+        return payment.year < selectedYear || 
+               (payment.year === selectedYear && payment.month < selectedMonth);
+      });
+      
+      console.log('Pagos de meses anteriores encontrados:', previousMonthsPayments.length);
+      
+      // Obtener todas las expensas para calcular saldos anteriores
+      const { data: allFees, error: allFeesError } = await supabase
+        .from('fees')
+        .select('*')
+        .eq('condominium_id', selectedCondominium);
+        
+      if (allFeesError) throw allFeesError;
+      
+      console.log('Todas las expensas encontradas:', allFees);
+      
+      // Si no hay expensas, intentar crear una para el mes actual
+      if (!allFees || allFees.length === 0) {
+        console.log('No se encontraron expensas. Verificando si existe una para el mes actual...');
+        
+        // Verificar si ya existe una expensa para el mes actual
+        const { data: currentFee, error: currentFeeError } = await supabase
+          .from('fees')
+          .select('*')
+          .eq('condominium_id', selectedCondominium)
+          .eq('month', selectedMonth)
+          .eq('year', selectedYear)
+          .single();
+          
+        if (currentFeeError && currentFeeError.code !== 'PGRST116') {
+          // Error diferente a "no se encontró"
+          throw currentFeeError;
+        }
+        
+        if (!currentFee && fee) {
+          console.log('No existe expensa para el mes actual. Creando...');
+          // Crear una expensa para el mes actual con el total del monto mostrado
+          const { error: createError } = await supabase
+            .from('fees')
+            .insert({
+              condominium_id: selectedCondominium,
+              month: selectedMonth,
+              year: selectedYear,
+              total_amount: fee.total_amount,
+              created_at: new Date().toISOString()
+            });
+            
+          if (createError) throw createError;
+          console.log('Expensa creada para el mes actual');
+        }
+      }
+      
+      // Actualizar el estado de pago de las unidades y calcular saldos anteriores
+      setUnits(prevUnits => {
+        return prevUnits.map(unit => {
+          // Verificar si hay pago para el mes actual
+          const currentPayment = (currentPayments || []).find(p => 
+            p.unit_id === unit.id && 
+            (p.payment_status === 'paid' || p.payment_status === 'partial')
+          );
+          
+          // Verificar si hay registro de deuda para esta unidad
+          const debtRecord = (currentPayments || []).find(p => 
+            p.unit_id === unit.id && 
+            p.payment_status === 'unpaid'
+          );
+          
+          console.log(`Calculando saldo para unidad ${unit.number} (ID: ${unit.id})`);
+          console.log(`  - Pago actual encontrado: ${currentPayment ? 'SÍ' : 'NO'}`);
+          console.log(`  - Registro de deuda encontrado: ${debtRecord ? 'SÍ' : 'NO'}`);
+          
+          // Calcular saldo anterior
+          let previousBalance = 0;
+          
+          // Obtener pagos anteriores para esta unidad
+          const unitPreviousPayments = (allPayments || []).filter(payment => {
+            return payment.unit_id === unit.id && 
+                  (payment.year < selectedYear || 
+                   (payment.year === selectedYear && payment.month < selectedMonth));
+          });
+          
+          console.log(`  - Pagos anteriores encontrados para esta unidad: ${unitPreviousPayments.length}`);
+          
+          // Para cada mes anterior, verificar si hay expensa y si está pagada
+          (allFees || []).forEach(fee => {
+            // Solo considerar meses anteriores al seleccionado
+            const isBeforeSelectedMonth = 
+              fee.year < selectedYear || 
+              (fee.year === selectedYear && fee.month < selectedMonth);
+            
+            if (isBeforeSelectedMonth) {
+              // Calcular el monto de la unidad para esta expensa
+              const unitAmount = fee.total_amount * (unit.coefficient / 100);
+              
+              // Buscar si existe un pago o registro de deuda para esta unidad en este mes/año
+              const paymentForThisFee = (allPayments || []).find(p => 
+                p.unit_id === unit.id && 
+                p.month === fee.month && 
+                p.year === fee.year
+              );
+              
+              console.log(`  - Monto para unidad: $${unitAmount.toFixed(2)}`);
+              console.log(`  - Registro encontrado: ${paymentForThisFee ? 'SÍ' : 'NO'}`);
+              
+              // Si no hay registro de pago/deuda, o hay un registro con estado 'unpaid', o el pago es parcial
+              if (!paymentForThisFee) {
+                // No hay registro, agregar todo el monto como deuda
+                previousBalance += unitAmount;
+                console.log(`  - No hay registro, se suma al saldo: $${unitAmount.toFixed(2)}`);
+              } else if (paymentForThisFee.payment_status === 'unpaid') {
+                // Hay un registro de deuda (no pagó), agregar todo el monto
+                previousBalance += unitAmount;
+                console.log(`  - Registro de NO PAGO, se suma al saldo: $${unitAmount.toFixed(2)}`);
+              } else if (paymentForThisFee.payment_status === 'partial' || paymentForThisFee.amount < unitAmount) {
+                // Pago parcial, agregar la diferencia
+                const difference = unitAmount - paymentForThisFee.amount;
+                previousBalance += difference;
+                console.log(`  - Pago parcial, se suma la diferencia: $${difference.toFixed(2)}`);
+              } else {
+                console.log(`  - Pago completo, no se suma nada al saldo`);
+              }
+            }
+          });
+          
+          // Si no se encontraron expensas anteriores pero hay pagos con monto 0 (deudas)
+          // para esta unidad, calcular el saldo anterior basado en esos registros
+          if (previousBalance === 0 && unitPreviousPayments.length > 0) {
+            const unpaidPayments = unitPreviousPayments.filter(p => 
+              p.payment_status === 'unpaid' || p.amount === 0
+            );
+            
+            if (unpaidPayments.length > 0) {
+              console.log(`  - Encontrados ${unpaidPayments.length} registros de deuda sin expensa asociada`);
+              
+              // Calcular el monto actual de la unidad para usarlo como estimación si es necesario
+              const estimatedUnitAmount = fee ? fee.total_amount * (unit.coefficient / 100) : 0;
+              
+              // Para cada registro de deuda, buscar la expensa correspondiente o estimar el monto
+              unpaidPayments.forEach(unpaidPayment => {
+                // Intentar encontrar la expensa correspondiente
+                const relatedFee = (allFees || []).find(f => 
+                  f.month === unpaidPayment.month && f.year === unpaidPayment.year
+                );
+                
+                if (relatedFee) {
+                  // Calcular el monto basado en la expensa
+                  const debtAmount = relatedFee.total_amount * (unit.coefficient / 100);
+                  previousBalance += debtAmount;
+                  console.log(`  - Deuda estimada para ${unpaidPayment.month}/${unpaidPayment.year}: $${debtAmount.toFixed(2)}`);
+                } else if (estimatedUnitAmount > 0) {
+                  // Si no hay expensa, usar el monto estimado como referencia
+                  previousBalance += estimatedUnitAmount;
+                  console.log(`  - Deuda estimada para ${unpaidPayment.month}/${unpaidPayment.year} (sin expensa): $${estimatedUnitAmount.toFixed(2)}`);
+                }
+              });
+            }
+          }
+
+// Actualizar el estado de pago de las unidades y calcular saldos anteriores
+setUnits(prevUnits => {
+  return prevUnits.map(unit => {
+    // Verificar si hay pago para el mes actual
+    const currentPayment = (currentPayments || []).find(p => 
+      p.unit_id === unit.id && 
+      (p.payment_status === 'paid' || p.payment_status === 'partial')
+    );
+  const fetchCondominiums = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('condominiums')
+        .select('id, name')
+        .order('name');
+
+      if (error) throw error;
+      setCondominiums(data || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al cargar los consorcios');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchFees = async () => {
+    try {
+      setLoading(true);
+      
+      // Obtener facturas de proveedores
+      const { data: invoicesData, error: invoicesError } = await supabase
+        .from('provider_invoices')
+        .select('id, amount, month, year, status')
+        .eq('condominium_id', selectedCondominium)
+        .eq('month', selectedMonth)
+        .eq('year', selectedYear);
+
+      if (invoicesError) throw invoicesError;
+
+      // Obtener empleados del consorcio
+      const { data: employeeCondominiums, error: employeeCondominiumsError } = await supabase
+        .from('employee_condominiums')
+        .select('employee_id')
+        .eq('condominium_id', selectedCondominium);
+
+      if (employeeCondominiumsError) throw employeeCondominiumsError;
+
+      // Obtener compensaciones de empleados si hay empleados asociados
+      let employeeCompensations: EmployeeCompensation[] = [];
+      if (employeeCondominiums && employeeCondominiums.length > 0) {
+        const employeeIds = employeeCondominiums.map(ec => ec.employee_id);
+        
+        const { data: compensationsData, error: compensationsError } = await supabase
+          .from('employee_compensations')
+          .select('id, total_compensation, month, year')
+          .in('employee_id', employeeIds)
+          .eq('month', selectedMonth)
+          .eq('year', selectedYear);
+
+        if (compensationsError) throw compensationsError;
+        employeeCompensations = compensationsData || [];
+      }
+
+      // Calcular el total de gastos
+      const invoicesTotal = (invoicesData || []).reduce((sum: number, invoice: ProviderInvoice) => 
+        invoice.status !== 'cancelled' ? sum + invoice.amount : sum, 0);
+      
+      const compensationsTotal = employeeCompensations.reduce((sum, comp) => 
+        sum + comp.total_compensation, 0);
+
+      const totalAmount = invoicesTotal + compensationsTotal;
+
+      // Crear un registro de expensa si hay gastos
+      if (totalAmount > 0) {
+        const fee: Fee = {
+          id: `${selectedCondominium}-${selectedMonth}-${selectedYear}`,
+          month: selectedMonth,
+          year: selectedYear,
+          total_amount: totalAmount,
+          generated_date: new Date().toISOString(),
+          condominium: condominiums.find(c => c.id === selectedCondominium) || { id: '', name: '' }
+        };
+        setFees([fee]);
+      } else {
+        setFees([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al cargar las expensas');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateYearOptions = () => {
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let i = currentYear - 5; i <= currentYear + 1; i++) {
+      years.push(i);
+    }
+    return years;
+  };
+  
+  const openPaymentDialog = (unit: Unit, amount: number) => {
+    setSelectedUnit(unit);
+    // Usar el monto total adeudado (saldo anterior + cuota actual)
+    setSuggestedAmount(unit.total_due || amount);
+    setPaymentDialogOpen(true);
+  };
+
+  const handlePaymentConfirm = async (amount: number) => {
+    if (!selectedUnit) return;
+    
+    try {
+      if (!selectedCondominium || !selectedMonth || !selectedYear) return;
+      
+      setSavingPayment(selectedUnit.id);
+      setPaymentDialogOpen(false);
+      
+      const paymentData = {
+        condominium_id: selectedCondominium,
+        unit_id: selectedUnit.id,
+        month: selectedMonth,
+        year: selectedYear,
+        amount: amount,
+        payment_date: new Date().toISOString(),
+        regularized: false,
+        payment_status: 'paid' // Explícitamente marcamos como pagado
+      };
+      
+      const { data, error } = await supabase
+        .from('expense_payments')
+        .insert(paymentData)
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      // Actualizar la lista de pagos
+      setPayments(prev => [...prev, data]);
+      
+      // Actualizar el estado de la unidad
+      setUnits(prevUnits => {
+        return prevUnits.map(u => {
+          if (u.id === selectedUnit.id) {
+            return {
+              ...u,
+              paid: true,
+              payment_id: data.id,
+              payment_date: data.payment_date
+            };
+          }
+          return u;
+        });
+      });
+    } catch (err) {
+      console.error('Error al registrar pago:', err);
+      alert('Error al registrar el pago. Intente nuevamente.');
+    } finally {
+      setSavingPayment(null);
+      setSelectedUnit(null);
+    }
+  };
+  
+  const handleCancelPayment = async (unit: Unit) => {
+    try {
+      if (!unit.payment_id) return;
+      
+      setSavingPayment(unit.id);
+      
+      const { error } = await supabase
+        .from('expense_payments')
+        .delete()
+        .eq('id', unit.payment_id);
+        
+      if (error) throw error;
+      
+      // Actualizar la lista de pagos
+      setPayments(prev => prev.filter(p => p.id !== unit.payment_id));
+      
+      // Actualizar el estado de la unidad
+      setUnits(prevUnits => {
+        return prevUnits.map(u => {
+          if (u.id === unit.id) {
+            const { payment_id, payment_date, paid, ...rest } = u;
+            return { ...rest, paid: false };
+          }
+          return u;
+        });
+      });
+    } catch (err) {
+      console.error('Error al cancelar pago:', err);
+      alert('Error al cancelar el pago. Intente nuevamente.');
+    } finally {
+      setSavingPayment(null);
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  const handleClosePeriod = async () => {
+    try {
+      if (!selectedCondominium || !selectedMonth || !selectedYear || !fees[0]) return;
+      
+      setClosingPeriod(true);
+      
+      // Obtener todas las unidades que no han pagado
+      const unpaidUnits = units.filter(unit => !unit.paid);
+      console.log('Unidades sin pagar:', unpaidUnits);
+      
+      if (unpaidUnits.length === 0) {
+        alert('Todas las unidades ya han pagado para este período.');
+        setClosingPeriod(false);
+        return;
+      }
+      
+      // Registrar deudas para todas las unidades que no han pagado
+      const debtRecords = unpaidUnits.map(unit => {
+        // Calcular el monto de la expensa para esta unidad (para referencia)
+        const fee = fees[0];
+        
+        return {
+          condominium_id: selectedCondominium,
+          unit_id: unit.id,
+          month: selectedMonth,
+          year: selectedYear,
+          amount: 0, // Monto 0 indica que no pagó
+          payment_date: new Date().toISOString(),
+          regularized: false,
+          payment_status: 'unpaid' // Explícitamente marcamos como no pagado
+        };
+      });
+      
+      console.log('Registros de deuda a insertar:', debtRecords);
+      
+      // Insertar todos los registros de deuda
+      const { data, error } = await supabase
+        .from('expense_payments')
+        .insert(debtRecords)
+        .select();
+        
+      if (error) throw error;
+      
+      console.log('Registros de deuda insertados:', data);
+      
+      // No necesitamos actualizar las unidades aquí, se actualizarán en fetchPayments
+      console.log('Cerrando período...');
+      
+      setPeriodClosed(true);
+      alert(`Período cerrado. Se registraron ${unpaidUnits.length} deudas.`);
+      
+      // Recargar los datos
+      await fetchPayments();
+      
+      // Forzar una recarga completa de la página para asegurar que todo se actualice
+      window.location.reload();
+    } catch (err) {
+      console.error('Error al cerrar período:', err);
+      alert('Error al cerrar el período. Intente nuevamente.');
+    } finally {
+      setClosingPeriod(false);
+    }
+  };
+  
+  return (
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">Expensas</h1>
+        <div className="flex space-x-3">
+          {selectedCondominium && fees.length > 0 && (
+            <button
+              onClick={handleClosePeriod}
+              disabled={closingPeriod || periodClosed}
+              className={`flex items-center ${closingPeriod || periodClosed ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'} text-white px-4 py-2 rounded-md transition-colors`}
+            >
+              {closingPeriod ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Cerrando período...
+                </>
+              ) : periodClosed ? (
+                'Período cerrado'
+              ) : (
+                'Cerrar período'
+              )}
+            </button>
+          )}
+          {selectedCondominium && (
+            <button
+              onClick={() => setInterestConfigOpen(true)}
+              className="flex items-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-colors"
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Configurar Intereses
+            </button>
+          )}
+        </div>
+      </div>
+      
+      <div className="bg-white rounded-lg shadow p-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Building className="inline-block w-4 h-4 mr-2" />
+              Consorcio
+            </label>
+            <Select
+              value={selectedCondominium}
+              onChange={(e) => setSelectedCondominium(e.target.value)}
+              className="w-full"
+            >
+              <option value="">Seleccione un consorcio</option>
+              {condominiums.map((condominium) => (
+                <option key={condominium.id} value={condominium.id}>
+                  {condominium.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Calendar className="inline-block w-4 h-4 mr-2" />
+              Mes
+            </label>
+            <Select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              className="w-full"
+            >
+              {MONTHS.map((month, index) => (
+                <option key={index + 1} value={index + 1}>
+                  {month}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Calendar className="inline-block w-4 h-4 mr-2" />
+              Año
+            </label>
+            <Select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className="w-full"
+            >
+              {generateYearOptions().map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center items-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+          </div>
+        ) : fees.length > 0 ? (
+          <div className="space-y-4">
+            {fees.map((fee) => (
+              <div key={fee.id} className="border rounded-lg p-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-semibold">{fee.condominium.name}</h3>
+                    <p className="text-gray-600">
+                      {MONTHS[fee.month - 1]} {fee.year}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-bold">
+                      ${fee.total_amount.toFixed(2)}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Generado: {new Date(fee.generated_date).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-center text-gray-600 py-8 mb-6">
+            {selectedCondominium
+              ? 'No hay expensas registradas para el período seleccionado'
+              : 'Seleccione un consorcio y período para ver las expensas'}
+          </p>
+        )}
+
+        {selectedCondominium && units.length > 0 && fees.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Distribución por Unidad</h2>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Unidad
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tipo
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Propietario
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Coeficiente
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Saldo Anterior
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Monto Actual
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Total a Pagar
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Estado
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {units.map((unit) => {
+                    const fee = fees[0];
+                    const unitAmount = fee.total_amount * (unit.coefficient / 100);
+                    return (
+                      <tr key={unit.id} className={unit.paid ? 'bg-green-50' : ''}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {unit.number}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {unit.type || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {unit.owner_name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {unit.coefficient}%
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <span className={unit.previous_balance && unit.previous_balance > 0 ? 'text-red-600 font-semibold' : ''}>
+                            ${(unit.previous_balance || 0).toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          ${unitAmount.toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
+                          ${(unit.total_due || unitAmount).toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {savingPayment === unit.id ? (
+                            <span className="inline-flex items-center">
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Guardando...
+                            </span>
+                          ) : unit.paid ? (
+                            <div>
+                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                Pagado
+                              </span>
+                              <div className="text-xs text-gray-500 mt-1">
+                                {new Date(unit.payment_date || '').toLocaleDateString()}
+                              </div>
+                              {!periodClosed && (
+                                <button
+                                  onClick={() => handleCancelPayment(unit)}
+                                  className="text-xs text-red-600 hover:text-red-800 mt-1 underline"
+                                >
+                                  Cancelar pago
+                                </button>
+                              )}
+                            </div>
+                          ) : unit.debt_registered ? (
+                            <div>
+                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                No pagado
+                              </span>
+                              <div className="text-xs text-gray-500 mt-1">
+                                Registrado como deuda
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => openPaymentDialog(unit, unitAmount)}
+                              disabled={periodClosed}
+                              className={`px-3 py-1 ${periodClosed ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'} text-white text-xs rounded transition-colors`}
+                            >
+                              {unit.previous_balance && unit.previous_balance > 0 ? 'Regularizar deuda' : 'Registrar pago'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Diálogo de configuración de intereses */}
+      {selectedCondominium && (
+        <InterestConfigDialog
+          open={interestConfigOpen}
+          onClose={() => setInterestConfigOpen(false)}
+          condominiumId={selectedCondominium}
+        />
+      )}
+      
+      {/* Diálogo de confirmación de pago */}
+      {selectedUnit && (
+        <PaymentConfirmationDialog
+          open={paymentDialogOpen}
+          onClose={() => setPaymentDialogOpen(false)}
+          onConfirm={handlePaymentConfirm}
+          unitNumber={selectedUnit.number}
+          ownerName={selectedUnit.owner_name}
+          suggestedAmount={suggestedAmount}
+        />
+      )}
+    </div>
+  );
+}

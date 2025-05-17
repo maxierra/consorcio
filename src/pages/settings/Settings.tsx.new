@@ -1,0 +1,365 @@
+import { useState, useEffect } from 'react';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../../components/ui/Card';
+import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
+import { useAuth } from '../../context/AuthContext';
+import { Settings as SettingsIcon, User, Key, Building, Save } from 'lucide-react';
+import { supabase } from '../../lib/supabaseClient';
+import { toast } from 'react-hot-toast';
+
+interface Administration {
+  id?: string;
+  name: string;
+  cuit: string;
+  registration_number: string;
+  address: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  email: string;
+  phone: string;
+}
+
+export default function Settings() {
+  const { supabase: authSupabase } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  // Estado para los datos de la administración
+  const [administration, setAdministration] = useState<Administration>({
+    name: '',
+    cuit: '',
+    registration_number: '',
+    address: '',
+    city: '',
+    state: '',
+    postal_code: '',
+    email: '',
+    phone: ''
+  });
+  const [adminId, setAdminId] = useState<string | null>(null);
+  const [adminLoading, setAdminLoading] = useState(true);
+
+  // Cargar datos de la administración al iniciar
+  useEffect(() => {
+    fetchAdministrationData();
+  }, []);
+
+  // Función para cargar los datos de la administración
+  const fetchAdministrationData = async () => {
+    setAdminLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('administration')
+        .select('*')
+        .limit(1);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setAdministration(data[0]);
+        setAdminId(data[0].id);
+      }
+    } catch (error: any) {
+      console.error('Error al cargar datos de la administración:', error.message);
+      toast.error('Error al cargar datos de la administración');
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  // Función para guardar los datos de la administración
+  const handleSaveAdministration = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const formData = new FormData(e.currentTarget);
+      
+      const adminData: Administration = {
+        name: formData.get('name') as string,
+        cuit: formData.get('cuit') as string,
+        registration_number: formData.get('registration_number') as string,
+        address: formData.get('address') as string,
+        city: formData.get('city') as string,
+        state: formData.get('state') as string,
+        postal_code: formData.get('postal_code') as string,
+        email: formData.get('email') as string,
+        phone: formData.get('phone') as string
+      };
+
+      let result;
+      
+      if (adminId) {
+        // Actualizar datos existentes
+        result = await supabase
+          .from('administration')
+          .update(adminData)
+          .eq('id', adminId);
+      } else {
+        // Insertar nuevos datos
+        result = await supabase
+          .from('administration')
+          .insert([adminData]);
+      }
+
+      if (result.error) throw result.error;
+
+      toast.success('Datos de la administración guardados correctamente');
+      fetchAdministrationData(); // Recargar datos
+    } catch (error: any) {
+      console.error('Error al guardar datos de la administración:', error);
+      toast.error(`Error al guardar: ${error.message || 'Error desconocido'}`);
+      setErrorMessage(`Error al guardar: ${error.message || 'Error desconocido'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const formData = new FormData(e.currentTarget);
+      const newPassword = formData.get('new-password') as string;
+      const confirmPassword = formData.get('confirm-password') as string;
+
+      if (newPassword !== confirmPassword) {
+        throw new Error('Las contraseñas no coinciden');
+      }
+
+      const { error } = await authSupabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) throw error;
+
+      setSuccessMessage('Contraseña actualizada correctamente');
+      e.currentTarget.reset();
+    } catch (error: any) {
+      setErrorMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-2">
+          <SettingsIcon className="h-6 w-6 text-gray-600" />
+          <h1 className="text-2xl font-semibold text-gray-900">Configuración de la Administración</h1>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        {/* Datos de la Administración */}
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <Building className="h-5 w-5 text-gray-600" />
+              <CardTitle>Datos de la Administración</CardTitle>
+            </div>
+            <CardDescription>Información de la empresa administradora</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {adminLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-700"></div>
+              </div>
+            ) : (
+              <form onSubmit={handleSaveAdministration} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                      Nombre de la Administración
+                    </label>
+                    <Input
+                      id="name"
+                      name="name"
+                      defaultValue={administration.name}
+                      required
+                      placeholder="Ej: Consorcios Buenos Aires"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="cuit" className="block text-sm font-medium text-gray-700 mb-1">
+                      CUIT
+                    </label>
+                    <Input
+                      id="cuit"
+                      name="cuit"
+                      defaultValue={administration.cuit}
+                      required
+                      placeholder="Ej: 27-23292567-7"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="registration_number" className="block text-sm font-medium text-gray-700 mb-1">
+                      Matrícula de Administrador
+                    </label>
+                    <Input
+                      id="registration_number"
+                      name="registration_number"
+                      defaultValue={administration.registration_number}
+                      placeholder="Ej: 9305"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
+                      Dirección
+                    </label>
+                    <Input
+                      id="address"
+                      name="address"
+                      defaultValue={administration.address}
+                      placeholder="Ej: Teodoro Garcia 3950 - 3 Dº"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="city" className="block text-sm font-medium text-gray-700 mb-1">
+                      Barrio/Localidad
+                    </label>
+                    <Input
+                      id="city"
+                      name="city"
+                      defaultValue={administration.city}
+                      placeholder="Ej: Chacarita"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="state" className="block text-sm font-medium text-gray-700 mb-1">
+                      Provincia/Estado
+                    </label>
+                    <Input
+                      id="state"
+                      name="state"
+                      defaultValue={administration.state}
+                      placeholder="Ej: C.A.B.A."
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="postal_code" className="block text-sm font-medium text-gray-700 mb-1">
+                      Código Postal
+                    </label>
+                    <Input
+                      id="postal_code"
+                      name="postal_code"
+                      defaultValue={administration.postal_code}
+                      placeholder="Ej: 1427"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                      Email
+                    </label>
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      defaultValue={administration.email}
+                      placeholder="Ej: consorcioba2@gmail.com"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
+                      Teléfono
+                    </label>
+                    <Input
+                      id="phone"
+                      name="phone"
+                      defaultValue={administration.phone}
+                      placeholder="Ej: 1153887030"
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={loading} className="flex items-center space-x-2">
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                        <span>Guardando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        <span>Guardar Datos</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Seguridad de la Cuenta */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center space-x-2">
+              <Key className="h-5 w-5 text-gray-600" />
+              <CardTitle>Seguridad de la Cuenta</CardTitle>
+            </div>
+            <CardDescription>Actualiza la contraseña de tu cuenta</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handlePasswordChange} className="space-y-4">
+              {successMessage && (
+                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
+                  {successMessage}
+                </div>
+              )}
+              {errorMessage && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                  {errorMessage}
+                </div>
+              )}
+              <div>
+                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-1">
+                  Nueva Contraseña
+                </label>
+                <Input
+                  id="new-password"
+                  name="new-password"
+                  type="password"
+                  required
+                  placeholder="Ingresa tu nueva contraseña"
+                />
+              </div>
+              <div>
+                <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
+                  Confirmar Contraseña
+                </label>
+                <Input
+                  id="confirm-password"
+                  name="confirm-password"
+                  type="password"
+                  required
+                  placeholder="Confirma tu nueva contraseña"
+                />
+              </div>
+              <Button type="submit" disabled={loading}>
+                {loading ? 'Actualizando...' : 'Actualizar Contraseña'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
