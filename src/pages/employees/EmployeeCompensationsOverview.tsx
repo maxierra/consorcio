@@ -127,6 +127,22 @@ export default function EmployeeCompensationsOverview() {
       
       if (compensationsError) throw compensationsError;
       
+      // Verificamos si hay compensaciones sin empleado asociado
+      const compensationsWithValidEmployee = compensationsData?.map(comp => {
+        if (!comp.employee) {
+          // Si no hay empleado asociado, creamos un objeto con valores por defecto
+          return {
+            ...comp,
+            employee: {
+              id: comp.employee_id || 'unknown',
+              name: 'Empleado no encontrado',
+              position: 'Posición desconocida'
+            }
+          };
+        }
+        return comp;
+      }) || [];
+      
       // Obtenemos todos los pagos
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('employee_payments')
@@ -628,8 +644,8 @@ export default function EmployeeCompensationsOverview() {
                 <CardContent>
                   <div className={`p-4 -m-4 mb-4 border-b ${compensation.payment_status === 'paid' ? 'bg-green-50' : compensation.payment_status === 'pending' ? 'bg-red-50' : 'bg-gray-50'} flex justify-between items-center`}>
                     <div>
-                      <h3 className="text-lg font-semibold">{compensation.employee.name}</h3>
-                      <p className="text-sm text-gray-600">{compensation.employee.position}</p>
+                      <h3 className="text-lg font-semibold">{compensation.employee?.name || 'Empleado sin nombre'}</h3>
+                      <p className="text-sm text-gray-600">{compensation.employee?.position || 'Sin posición'}</p>
                       <p className="text-sm text-gray-600">
                         {MONTHS[compensation.month - 1]} {compensation.year}
                       </p>
