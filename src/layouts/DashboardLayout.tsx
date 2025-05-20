@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Building, DollarSign, Receipt, FileText, PieChart, Settings, Menu, X, ChevronDown, ChevronRight, LogOut, Users } from 'lucide-react';
+import { LayoutDashboard, Building, DollarSign, Receipt, FileText, PieChart, Settings, Menu, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import LogoutButton from '../components/LogoutButton';
 
 export const navigation = [
   { name: 'Panel', href: '/', icon: LayoutDashboard },
@@ -94,14 +95,7 @@ export default function DashboardLayout() {
     setExpandedItems(itemsToExpand);
   }, [location.pathname]);
 
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      navigate('/login');
-    } catch (error) {
-      console.error('Error al cerrar sesión:', error);
-    }
-  };
+  // La función de cierre de sesión ahora está en el componente LogoutButton
 
   const NavItem = ({ item, mobile = false }: { item: any; mobile?: boolean }) => {
     const active = isActive(item.href) || isChildActive(item);
@@ -190,13 +184,7 @@ export default function DashboardLayout() {
 
           {/* Logout button */}
           <div className="p-4 border-t border-gray-200">
-            <button
-              onClick={handleLogout}
-              className="flex items-center w-full px-4 py-2 text-sm font-medium text-red-600 rounded-md hover:bg-red-50 transition-colors"
-            >
-              <LogOut className="w-5 h-5 mr-3" />
-              Cerrar Sesión
-            </button>
+            <LogoutButton />
           </div>
         </div>
       </div>

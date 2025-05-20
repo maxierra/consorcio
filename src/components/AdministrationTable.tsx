@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { useAuth } from '../context/AuthContext';
 import { TrashIcon, PencilIcon, InformationCircleIcon, EnvelopeIcon, PhoneIcon, MapPinIcon } from '@heroicons/react/24/solid';
 
 interface Administration {
@@ -24,6 +25,7 @@ export default function AdministrationTable({ onEdit, triggerRefresh }: Administ
   const [administrations, setAdministrations] = useState<Administration[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { user } = useAuth();
 
   useEffect(() => {
     fetchAdministrations();
@@ -32,9 +34,17 @@ export default function AdministrationTable({ onEdit, triggerRefresh }: Administ
   const fetchAdministrations = async () => {
     setLoading(true);
     try {
+      if (!user) {
+        setError('Usuario no autenticado');
+        setAdministrations([]);
+        return;
+      }
+
+      // Consultar la tabla administration filtrando por user_id
       const { data, error } = await supabase
         .from('administration')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -49,12 +59,37 @@ export default function AdministrationTable({ onEdit, triggerRefresh }: Administ
 
   const handleDelete = async (id: string) => {
     if (!confirm('¿Está seguro que desea eliminar este registro?')) return;
+    if (!user) {
+      alert('Usuario no autenticado');
+      return;
+    }
 
     try {
+      // Verificar primero que el registro pertenezca al usuario actual
+      const { data: adminData, error: fetchError } = await supabase
+        .from('administration')
+        .select('*')
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .single();
+      
+      if (fetchError) {
+        console.error('Error verificando propiedad del registro:', fetchError);
+        alert('No tiene permiso para eliminar este registro o el registro no existe');
+        return;
+      }
+      
+      if (!adminData) {
+        alert('No tiene permiso para eliminar este registro');
+        return;
+      }
+
+      // Eliminar el registro
       const { error } = await supabase
         .from('administration')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('user_id', user.id); // Asegurar que solo se elimine si pertenece al usuario
 
       if (error) throw error;
       

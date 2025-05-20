@@ -29,7 +29,7 @@ interface EmployeeCompensation {
   year: number;
   created_at: string;
   payment_status?: 'pending' | 'paid';
-  payment_date?: string | null;
+  payment_date?: string;
   employee: {
     id: string;
     name: string;
@@ -360,21 +360,16 @@ export default function EmployeeCompensationsOverview() {
         )
       );
 
-      // Actualizar también las compensaciones filtradas
-      setFilteredCompensations(prevCompensations => 
-        prevCompensations.map(comp => 
-          comp.id === compensationId ? 
-          { 
-            ...comp, 
-            payment_status: newStatus,
-            payment_date: newStatus === 'paid' ? currentDate : null
-          } : 
-          comp
-        )
-      );
+      // Volver a aplicar los filtros
+      applyFilters();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al actualizar el estado de pago');
     }
+  };
+
+      setError(err instanceof Error ? err.message : 'Error al actualizar el estado de pago');
+    }
+  };
   };
 
   // Resetear todos los filtros

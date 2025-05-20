@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { useAuth } from '../context/AuthContext';
 
 interface Administration {
   id?: string;
@@ -22,6 +23,7 @@ interface AdministrationFormProps {
 }
 
 export default function AdministrationForm({ isOpen, onClose, onSuccess, administrationToEdit }: AdministrationFormProps) {
+  const { user } = useAuth();
   const [formData, setFormData] = useState<Administration>({
     name: '',
     cuit: '',
@@ -71,10 +73,31 @@ export default function AdministrationForm({ isOpen, onClose, onSuccess, adminis
     setError('');
     setLoading(true);
 
+    // Verificar que el usuario esté autenticado
+    if (!user) {
+      setError('Usuario no autenticado');
+      setLoading(false);
+      return;
+    }
+
     try {
       let dbError;
 
       if (isEditing) {
+        // Verificar que el registro pertenezca al usuario actual antes de actualizarlo
+        const { data: existingData, error: fetchError } = await supabase
+          .from('administration')
+          .select('*')
+          .eq('id', formData.id)
+          .eq('user_id', user.id)
+          .single();
+
+        if (fetchError || !existingData) {
+          setError('No tiene permiso para editar este registro o el registro no existe');
+          setLoading(false);
+          return;
+        }
+
         // Actualizar registro existente
         const { error } = await supabase
           .from('administration')
@@ -90,15 +113,17 @@ export default function AdministrationForm({ isOpen, onClose, onSuccess, adminis
             phone: formData.phone,
             updated_at: new Date().toISOString()
           })
-          .eq('id', formData.id);
+          .eq('id', formData.id)
+          .eq('user_id', user.id); // Asegurar que solo se actualice si pertenece al usuario
         
         dbError = error;
       } else {
-        // Insertar nuevo registro
+        // Insertar nuevo registro con el ID del usuario actual
         const { error } = await supabase
           .from('administration')
           .insert([{
             ...formData,
+            user_id: user.id, // Asociar el registro con el usuario actual
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           }]);

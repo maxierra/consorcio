@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 // Layouts
 import AuthLayout from './layouts/AuthLayout';
 import DashboardLayout from './layouts/DashboardLayout';
+import ProtectedRoute from './components/ProtectedRoute';
 
 // Pages
 import Login from './pages/auth/Login';
@@ -97,31 +98,33 @@ function App() {
           </Route>
 
           {/* Protected routes */}
-          <Route element={<DashboardLayout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/consorcios" element={<Condominiums />} />
-            <Route path="/consorcios/new" element={<CreateCondominium />} />
-            <Route path="/consorcios/:id" element={<CondominiumDetails />} />
-            <Route path="/consorcios-balances" element={<CondominiumBalances />} />
-            <Route path="/expenses" element={<Expenses />} />
-            <Route path="/expenses/:id" element={<ExpenseDetails />} />
-            <Route path="/employees" element={<Employees />} />
-            <Route path="/employees/new" element={<CreateEmployee />} />
-            <Route path="/employees/:id" element={<EmployeeDetails />} />
-            <Route path="/employees/:id/compensations" element={<EmployeeCompensationHistory />} />
-            <Route path="/employees/:id/payments" element={<EmployeePayments />} />
-            <Route path="/employees/:id/payments/new" element={<CreateEmployeePayment />} />
-            <Route path="/employee-compensations" element={<EmployeeCompensationsOverview />} />
-            <Route path="/providers" element={<Providers />} />
-            <Route path="/providers/:id/invoices" element={<ProviderInvoices />} />
-            <Route path="/providers/:id/invoices/new" element={<CreateProviderInvoice />} />
-            <Route path="/providers/:providerId/invoices/:invoiceId" element={<ProviderInvoiceDetails />} />
-            <Route path="/provider-invoices" element={<ProviderInvoicesOverview />} />
-            <Route path="/fees" element={<Fees />} />
-            <Route path="/fees/:id" element={<FeeDetails />} />
-            <Route path="/payments" element={<Payments />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/settings" element={<Settings />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<DashboardLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/consorcios" element={<Condominiums />} />
+              <Route path="/consorcios/new" element={<CreateCondominium />} />
+              <Route path="/consorcios/:id" element={<CondominiumDetails />} />
+              <Route path="/consorcios-balances" element={<CondominiumBalances />} />
+              <Route path="/expenses" element={<Expenses />} />
+              <Route path="/expenses/:id" element={<ExpenseDetails />} />
+              <Route path="/employees" element={<Employees />} />
+              <Route path="/employees/new" element={<CreateEmployee />} />
+              <Route path="/employees/:id" element={<EmployeeDetails />} />
+              <Route path="/employees/:id/compensations" element={<EmployeeCompensationHistory />} />
+              <Route path="/employees/:id/payments" element={<EmployeePayments />} />
+              <Route path="/employees/:id/payments/new" element={<CreateEmployeePayment />} />
+              <Route path="/employee-compensations" element={<EmployeeCompensationsOverview />} />
+              <Route path="/providers" element={<Providers />} />
+              <Route path="/providers/:id/invoices" element={<ProviderInvoices />} />
+              <Route path="/providers/:id/invoices/new" element={<CreateProviderInvoice />} />
+              <Route path="/providers/:providerId/invoices/:invoiceId" element={<ProviderInvoiceDetails />} />
+              <Route path="/provider-invoices" element={<ProviderInvoicesOverview />} />
+              <Route path="/fees" element={<Fees />} />
+              <Route path="/fees/:id" element={<FeeDetails />} />
+              <Route path="/payments" element={<Payments />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
           </Route>
 
           {/* Fallback redirect */}

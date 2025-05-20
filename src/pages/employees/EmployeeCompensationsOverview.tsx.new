@@ -1,9 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, Search, DollarSign, Building, 
-  CheckCircle, Clock, Receipt, Calendar
-} from 'lucide-react';
+import { ArrowLeft, Search, DollarSign, Building, Users, CheckCircle, Clock } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { useAuth } from '../../context/AuthContext';
 import { Button } from '../../components/ui/Button';
@@ -29,7 +26,7 @@ interface EmployeeCompensation {
   year: number;
   created_at: string;
   payment_status?: 'pending' | 'paid';
-  payment_date?: string | null;
+  payment_date?: string;
   employee: {
     id: string;
     name: string;
@@ -327,21 +324,18 @@ export default function EmployeeCompensationsOverview() {
     switch (status) {
       case 'paid': return 'success';
       case 'pending': return 'warning';
-      default: return 'default';
+      default: return 'secondary';
     }
   };
 
   // Manejar cambio de estado de pago
   const handleStatusChange = async (compensationId: string, newStatus: 'pending' | 'paid') => {
     try {
-      // Fecha actual para registrar el momento del pago
-      const currentDate = new Date().toISOString();
-      
       const { error } = await supabase
         .from('employee_compensations')
         .update({ 
           payment_status: newStatus,
-          payment_date: newStatus === 'paid' ? currentDate : null
+          payment_date: newStatus === 'paid' ? new Date().toISOString() : null
         })
         .eq('id', compensationId);
 
@@ -354,24 +348,14 @@ export default function EmployeeCompensationsOverview() {
           { 
             ...comp, 
             payment_status: newStatus,
-            payment_date: newStatus === 'paid' ? currentDate : null
+            payment_date: newStatus === 'paid' ? new Date().toISOString() : null
           } : 
           comp
         )
       );
 
-      // Actualizar también las compensaciones filtradas
-      setFilteredCompensations(prevCompensations => 
-        prevCompensations.map(comp => 
-          comp.id === compensationId ? 
-          { 
-            ...comp, 
-            payment_status: newStatus,
-            payment_date: newStatus === 'paid' ? currentDate : null
-          } : 
-          comp
-        )
-      );
+      // Volver a aplicar los filtros
+      applyFilters();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al actualizar el estado de pago');
     }
@@ -388,28 +372,28 @@ export default function EmployeeCompensationsOverview() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
           <Button
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon"
             onClick={() => navigate(-1)}
+            className="mr-2"
           >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Volver
+            <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-2xl font-semibold text-gray-900">Control de Remuneraciones</h1>
+          <h1 className="text-2xl font-bold">Compensaciones de Empleados</h1>
         </div>
       </div>
 
       {error && (
-        <div className="bg-danger-50 border border-danger-200 text-danger-700 px-4 py-3 rounded">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           {error}
         </div>
       )}
 
-      <Card>
+      <Card className="mb-6">
         <CardHeader>
           <CardTitle>Filtros</CardTitle>
         </CardHeader>
@@ -493,211 +477,119 @@ export default function EmployeeCompensationsOverview() {
           </div>
           
           <div className="mt-4">
-            <Button 
-              variant="outline" 
-              onClick={resetFilters}
-              className="w-full md:w-auto"
-            >
+            <Button variant="outline" onClick={resetFilters} className="mr-2">
               Limpiar filtros
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Dashboard con estadísticas visuales */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        {/* Total de compensaciones */}
-        <Card className={`bg-gray-50 border-t-4 border-blue-500`}>
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-sm text-gray-500">Total de compensaciones</p>
-                <h3 className="text-2xl font-bold">{filteredCompensations.length}</h3>
-              </div>
-              <Receipt className="h-10 w-10 text-blue-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Compensaciones pagadas */}
-        <Card className={`bg-gray-50 border-t-4 border-green-500`}>
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-sm text-gray-500">Pagadas</p>
-                <h3 className="text-2xl font-bold">
-                  {filteredCompensations.filter(comp => comp.payment_status === 'paid').length}
-                </h3>
-              </div>
-              <CheckCircle className="h-10 w-10 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Compensaciones pendientes */}
-        <Card className={`bg-gray-50 border-t-4 border-red-500`}>
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-sm text-gray-500">Pendientes</p>
-                <h3 className="text-2xl font-bold">
-                  {filteredCompensations.filter(comp => comp.payment_status === 'pending').length}
-                </h3>
-              </div>
-              <Clock className="h-10 w-10 text-red-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Monto total */}
-        <Card className={`bg-gray-50 border-t-4 border-purple-500`}>
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-sm text-gray-500">Monto total</p>
-                <h3 className="text-2xl font-bold">
-                  {formatCurrency(filteredCompensations.reduce((sum, comp) => sum + comp.total_compensation, 0))}
-                </h3>
-              </div>
-              <DollarSign className="h-10 w-10 text-purple-500" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Barra de progreso visual */}
-      {filteredCompensations.length > 0 && (
-        <Card className="mb-6">
-          <CardContent className="p-6">
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <h3 className="font-medium">Progreso de pagos</h3>
-                <span className="text-sm text-gray-500">
-                  {Math.round((filteredCompensations.filter(comp => comp.payment_status === 'paid').length / filteredCompensations.length) * 100)}% completado
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-4">
-                <div 
-                  className="bg-green-500 h-4 rounded-full" 
-                  style={{ width: `${(filteredCompensations.filter(comp => comp.payment_status === 'paid').length / filteredCompensations.length) * 100}%` }}
-                ></div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-lg font-medium">
-            {filteredCompensations.length} compensaciones encontradas
-          </h2>
+      {loading ? (
+        <div className="text-center py-10">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-800"></div>
+          <p className="mt-2">Cargando compensaciones...</p>
         </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center min-h-[400px]">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-700"></div>
-          </div>
-        ) : filteredCompensations.length === 0 ? (
-          <Card>
-            <CardContent className="p-6 text-center text-gray-500">
-              No se encontraron compensaciones con los filtros seleccionados.
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {filteredCompensations.map((compensation) => (
-              <Card 
-                key={compensation.id} 
-                className={`overflow-hidden ${compensation.payment_status === 'paid' ? 'border-l-4 border-l-green-500' : compensation.payment_status === 'pending' ? 'border-l-4 border-l-red-500' : ''}`}
-              >
-                <div className={`p-4 border-b ${compensation.payment_status === 'paid' ? 'bg-green-50' : compensation.payment_status === 'pending' ? 'bg-red-50' : 'bg-gray-50'} flex justify-between items-center`}>
-                  <div className="flex items-center space-x-4">
-                    <div>
-                      <h3 className="font-medium">{compensation.employee?.name}</h3>
-                      <p className="text-sm text-gray-500">{compensation.employee?.position}</p>
-                    </div>
+      ) : filteredCompensations.length === 0 ? (
+        <div className="text-center py-10">
+          <p className="text-gray-500">No se encontraron compensaciones con los filtros seleccionados.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredCompensations.map((compensation) => (
+            <Card key={compensation.id} className="overflow-hidden">
+              <CardHeader className="bg-gray-50 pb-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <CardTitle className="text-lg">{compensation.employee?.name}</CardTitle>
+                    <p className="text-sm text-gray-500">{compensation.employee?.position}</p>
                   </div>
-                  <Badge variant={getStatusBadgeVariant(compensation.payment_status)} className={compensation.payment_status === 'paid' ? 'bg-green-500' : compensation.payment_status === 'pending' ? 'bg-red-500' : ''}>
+                  <Badge variant={getStatusBadgeVariant(compensation.payment_status)}>
                     {compensation.payment_status === 'paid' ? 'Pagado' : 'Pendiente'}
                   </Badge>
                 </div>
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center text-sm text-gray-500">
-                        <Calendar className="h-4 w-4 mr-2" />
-                        <span>Período: {MONTHS[compensation.month - 1]} {compensation.year}</span>
-                      </div>
-                      {compensation.payment_status === 'paid' && compensation.payment_date && (
-                        <div className="flex items-center text-sm text-gray-500">
-                          <Clock className="h-4 w-4 mr-2" />
-                          <span>Pagado el {new Date(compensation.payment_date).toLocaleDateString()}</span>
-                        </div>
-                      )}
-                      {compensation.condominiums && compensation.condominiums.length > 0 && (
-                        <div className="flex items-center text-sm text-gray-500">
-                          <Building className="h-4 w-4 mr-2" />
-                          <span>Consorcios: {compensation.condominiums.map(c => c.name).join(', ')}</span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <div className="flex items-center text-sm text-gray-500">
-                        <DollarSign className="h-4 w-4 mr-2" />
-                        <span>Salario neto: {formatCurrency(compensation.net_salary)}</span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-500">
-                        <DollarSign className="h-4 w-4 mr-2" />
-                        <span>Seguridad social: {formatCurrency(compensation.social_security)}</span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-500">
-                        <DollarSign className="h-4 w-4 mr-2" />
-                        <span>Aporte sindical: {formatCurrency(compensation.union_contribution)}</span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-500">
-                        <DollarSign className="h-4 w-4 mr-2" />
-                        <span>Otras deducciones: {formatCurrency(compensation.other_deductions)}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-1">
-                      <div className="flex items-center font-medium">
-                        <DollarSign className="h-4 w-4 mr-2 text-green-600" />
-                        <span>Compensación total: {formatCurrency(compensation.total_compensation)}</span>
-                      </div>
-                      <div className="flex space-x-2 mt-4">
-                        {compensation.payment_status === 'pending' ? (
-                          <Button 
-                            size="sm" 
-                            variant="primary"
-                            onClick={() => handleStatusChange(compensation.id, 'paid')}
-                            className="flex items-center"
-                          >
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Marcar como pagado
-                          </Button>
-                        ) : (
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            onClick={() => handleStatusChange(compensation.id, 'pending')}
-                            className="flex items-center"
-                          >
-                            <Clock className="h-4 w-4 mr-2" />
-                            Marcar como pendiente
-                          </Button>
-                        )}
-                      </div>
-                    </div>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Período:</span>
+                    <span className="font-medium">
+                      {MONTHS[compensation.month - 1]} {compensation.year}
+                    </span>
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
+                  
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Salario neto:</span>
+                    <span className="font-medium">{formatCurrency(compensation.net_salary)}</span>
+                  </div>
+                  
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Seguridad social:</span>
+                    <span className="font-medium">{formatCurrency(compensation.social_security)}</span>
+                  </div>
+                  
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Aporte sindical:</span>
+                    <span className="font-medium">{formatCurrency(compensation.union_contribution)}</span>
+                  </div>
+                  
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Otras deducciones:</span>
+                    <span className="font-medium">{formatCurrency(compensation.other_deductions)}</span>
+                  </div>
+                  
+                  <div className="flex justify-between pt-2 border-t">
+                    <span className="font-medium">Compensación total:</span>
+                    <span className="font-bold">{formatCurrency(compensation.total_compensation)}</span>
+                  </div>
+
+                  {compensation.condominiums && compensation.condominiums.length > 0 && (
+                    <div className="pt-2 border-t">
+                      <span className="text-sm text-gray-500 block mb-1">Consorcios:</span>
+                      <div className="flex flex-wrap gap-1">
+                        {compensation.condominiums.map(condo => (
+                          <Badge key={condo.id} variant="outline" className="text-xs">
+                            {condo.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {compensation.payment_status === 'paid' && compensation.payment_date && (
+                    <div className="flex items-center text-sm text-gray-500 pt-2">
+                      <Clock className="h-4 w-4 mr-1" />
+                      <span>Pagado el {new Date(compensation.payment_date).toLocaleDateString()}</span>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="mt-4 flex justify-end space-x-2">
+                  {compensation.payment_status === 'pending' ? (
+                    <Button 
+                      size="sm" 
+                      onClick={() => handleStatusChange(compensation.id, 'paid')}
+                      className="flex items-center"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Marcar como pagado
+                    </Button>
+                  ) : (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => handleStatusChange(compensation.id, 'pending')}
+                      className="flex items-center"
+                    >
+                      <Clock className="h-4 w-4 mr-1" />
+                      Marcar como pendiente
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

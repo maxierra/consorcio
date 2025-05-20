@@ -1,24 +1,55 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, DollarSign, Calendar, FileText, Edit, Trash2 } from 'lucide-react';
+import { useState, useEffect, ReactNode } from 'react';
+import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
-import { Badge } from '../../components/ui/Badge';
-import { formatCurrency } from '../../lib/utils';
-import Input from '../../components/ui/Input';
-import CollapsibleSection from '../../components/CollapsibleSection';
+import { Select } from '../../components/ui/Select';
 import BalanceCharts from '../../components/BalanceCharts';
 
+// Componente para secciones expandibles/contraíbles
+interface CollapsibleSectionProps {
+  title: string;
+  children: ReactNode;
+  isExpanded: boolean;
+  onToggle: () => void;
+  bgColor: string;
+  textColor: string;
+}
+
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ 
+  title, 
+  children, 
+  isExpanded, 
+  onToggle, 
+  bgColor, 
+  textColor 
+}) => {
+  return (
+    <div className="mb-8">
+      <div 
+        className={`flex justify-between items-center mb-2 p-2 ${bgColor} rounded cursor-pointer`}
+        onClick={onToggle}
+      >
+        <h3 className={`text-lg font-semibold ${textColor}`}>{title}</h3>
+        <span className={textColor}>
+          {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+        </span>
+      </div>
+      {isExpanded && (
+        <div className="overflow-x-auto">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Interfaces
 interface Condominium {
   id: string;
   name: string;
   address: string;
   tax_id?: string;
-  bank_info?: string;
-  bank_name?: string;
-  bank_account?: string;
-  bank_cbu?: string;
 }
 
 interface CondominiumBalance {
@@ -44,14 +75,11 @@ interface ExpensePayment {
   year: number;
   amount: number;
   payment_date: string;
-  created_at: string;
-  regularized: boolean;
-  regularization_date: string | null;
   payment_status: 'paid' | 'unpaid' | 'partial';
   unit?: {
     number: string;
     owner_name: string;
-  };
+  }
 }
 
 interface ProviderInvoice {
@@ -64,37 +92,42 @@ interface ProviderInvoice {
   amount: number;
   description: string;
   status: string;
-  created_at: string;
-  receipt_url: string | null;
-  payment_method: string;
   month: number;
   year: number;
   category: string;
   provider?: {
     name: string;
-  };
+  }
 }
 
 interface EmployeePayment {
   id: string;
   employee_id: string;
   condominium_id: string;
-  month: number;
-  year: number;
-  base_salary: number;
-  social_security: number;
-  union_fee: number;
-  additional_hours: number;
-  bonuses: number;
-  deductions: number;
   total_amount: number;
-  payment_date: string;
   status: string;
-  created_at: string;
   employee?: {
     name: string;
     position: string;
-  };
+  }
+}
+
+interface EmployeeCompensation {
+  id: string;
+  employee_id: string;
+  net_salary: number;
+  social_security: number;
+  union_contribution: number;
+  other_deductions: number;
+  total_compensation: number;
+  month: number;
+  year: number;
+  payment_status: string;
+  payment_date: string;
+  employee?: {
+    name: string;
+    position: string;
+  }
 }
 
 const MONTHS = [
@@ -102,912 +135,649 @@ const MONTHS = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
 
-const STATUS_COLORS: Record<string, string> = {
-  'pendiente': 'bg-yellow-100 text-yellow-800',
-  'aprobado': 'bg-green-100 text-green-800',
-  'cerrado': 'bg-blue-100 text-blue-800'
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  'pendiente': 'Pendiente',
-  'aprobado': 'Aprobado',
-  'cerrado': 'Cerrado'
-};
-
-export default function CondominiumBalances() {
-  const navigate = useNavigate();
+const CondominiumBalances = () => {
+  // Estados
   const [condominiums, setCondominiums] = useState<Condominium[]>([]);
-  const [selectedCondominium, setSelectedCondominium] = useState<string>('');
-  const [selectedCondominiumData, setSelectedCondominiumData] = useState<Condominium | null>(null);
+  const [selectedCondominium, setSelectedCondominium] = useState<string | null>(null);
   const [balances, setBalances] = useState<CondominiumBalance[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedBalance, setSelectedBalance] = useState<string | null>(null);
   const [expensePayments, setExpensePayments] = useState<ExpensePayment[]>([]);
+  const [filteredExpensePayments, setFilteredExpensePayments] = useState<ExpensePayment[]>([]);
   const [providerInvoices, setProviderInvoices] = useState<ProviderInvoice[]>([]);
+  const [filteredProviderInvoices, setFilteredProviderInvoices] = useState<ProviderInvoice[]>([]);
   const [employeePayments, setEmployeePayments] = useState<EmployeePayment[]>([]);
-  const [showPaymentsHistory, setShowPaymentsHistory] = useState(false);
-  const [showInvoicesHistory, setShowInvoicesHistory] = useState(false);
-  const [showEmployeePaymentsHistory, setShowEmployeePaymentsHistory] = useState(false);
-  
-  // Obtener año actual
-  const currentYear = new Date().getFullYear();
-  
-  // Estados para filtrar por período
-  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
-  const [selectedMonth, setSelectedMonth] = useState<number>(0); // 0 significa todos los meses
-  
-  // Estados para expandir/contraer secciones
+  const [employeeCompensations, setEmployeeCompensations] = useState<EmployeeCompensation[]>([]);
+  const [filteredEmployeeCompensations, setFilteredEmployeeCompensations] = useState<EmployeeCompensation[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [totalIncome, setTotalIncome] = useState<number>(0);
+  const [totalSalaries, setTotalSalaries] = useState<number>(0);
+  const [totalInvoices, setTotalInvoices] = useState<number>(0);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [showPaymentsHistory, setShowPaymentsHistory] = useState<boolean>(false);
+  const [showInvoicesHistory, setShowInvoicesHistory] = useState<boolean>(false);
+  const [showCompensationsHistory, setShowCompensationsHistory] = useState<boolean>(false);
+  const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [expandedSections, setExpandedSections] = useState<{
-    income: boolean;
+    payments: boolean;
     invoices: boolean;
-    salaries: boolean;
-  }>({ income: false, invoices: false, salaries: false });
-  
-  // Obtener años disponibles para filtrar (año actual y 4 años anteriores)
-  const availableYears = Array.from({ length: 5 }, (_, i) => currentYear - i);
-  
-  // Función auxiliar para filtrar registros por período
-  const filterByPeriod = <T extends { year: number; month: number }>(items: T[]): T[] => {
-    return items.filter(item => 
-      item.year === selectedYear && 
-      (selectedMonth === 0 || item.month === selectedMonth)
-    );
-  };
-  
-  // Calcular totales para cada tipo de registro
-  const calculateTotals = () => {
-    // Total de ingresos por cobro de expensas
-    const totalIncome = filterByPeriod(expensePayments)
-      .reduce((sum, payment) => sum + payment.amount, 0);
-    
-    // Total de egresos por pago de sueldos
-    const totalSalaries = filterByPeriod(employeePayments)
-      .reduce((sum, payment) => sum + payment.total_amount, 0);
-    
-    // Total de egresos por pago de facturas
-    const totalInvoices = filterByPeriod(providerInvoices)
-      .filter(invoice => invoice.status === 'paid')
-      .reduce((sum, invoice) => sum + invoice.amount, 0);
-    
-    return { totalIncome, totalSalaries, totalInvoices };
-  };
-  
-  const { totalIncome, totalSalaries, totalInvoices } = calculateTotals();
-  
-  // Estado para mostrar/ocultar el formulario de balance
-  const [showBalanceForm, setShowBalanceForm] = useState(false);
-  
-  // Estado para el formulario de balance
-  const [formData, setFormData] = useState({
-    period_month: new Date().getMonth() + 1,
-    period_year: new Date().getFullYear(),
-    initial_balance: '',
-    income: '0',
-    expenses: '0',
-    final_balance: '0',
-    status: 'pendiente',
-    notes: ''
-  });
-  
-  // Estado para edición de balance
-  const [editingBalanceId, setEditingBalanceId] = useState<string | null>(null);
-  
-  // Obtener años disponibles para los filtros (año actual y 4 años anteriores)
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
+    compensations: boolean;
+  }>({ payments: false, invoices: false, compensations: false });
 
-  // Obtener el texto del período actual
-  const getCurrentPeriodText = () => {
-    if (balances.length === 0) return 'Actual';
-    const currentBalance = balances[0];
-    return `${MONTHS[currentBalance.period_month - 1]} ${currentBalance.period_year}`;
-  };
-
+  // Cargar condominios al iniciar
   useEffect(() => {
+    const fetchCondominiums = async () => {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from('condominiums')
+          .select('*')
+          .order('name');
+        
+        if (error) throw error;
+        
+        setCondominiums(data || []);
+        
+        // Si hay condominios, seleccionar el primero por defecto
+        if (data && data.length > 0) {
+          setSelectedCondominium(data[0].id);
+        }
+      } catch (err) {
+        console.error('Error al cargar condominios:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar condominios');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchCondominiums();
   }, []);
 
+  // Cargar balances cuando se selecciona un condominio
   useEffect(() => {
     if (selectedCondominium) {
-      fetchCondominiumData();
       fetchBalances();
-      fetchExpensePayments();
-      fetchProviderInvoices();
-      fetchEmployeePayments();
     }
   }, [selectedCondominium]);
-  
-  // Cuando cambia la lista de balances, si el balance seleccionado ya no existe, deseleccionarlo
-  useEffect(() => {
-    if (selectedBalance && !balances.some(balance => balance.id === selectedBalance)) {
-      setSelectedBalance(null);
-    }
-    
-    // Si no hay balance seleccionado y hay balances disponibles, seleccionar el primero
-    if (!selectedBalance && balances.length > 0) {
-      setSelectedBalance(balances[0].id);
-    }
-  }, [balances, selectedBalance]);
 
-  const fetchCondominiums = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('condominiums')
-        .select('id, name, address, tax_id, bank_info, bank_name, bank_account, bank_cbu')
-        .order('name');
-
-      if (error) throw error;
-      setCondominiums(data || []);
-      
-      // Si hay consorcios, seleccionar el primero por defecto
-      if (data && data.length > 0) {
-        setSelectedCondominium(data[0].id);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar los consorcios');
-    }
-  };
-
-  const fetchCondominiumData = async () => {
-    if (!selectedCondominium) return;
-    
-    try {
-      const { data, error } = await supabase
-        .from('condominiums')
-        .select('*')
-        .eq('id', selectedCondominium)
-        .single();
-
-      if (error) throw error;
-      setSelectedCondominiumData(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar los datos del consorcio');
-    }
-  };
-
+  // Función para obtener los balances del condominio seleccionado
   const fetchBalances = async () => {
     if (!selectedCondominium) return;
     
     try {
       setLoading(true);
-      
       const { data, error } = await supabase
         .from('condominium_balances')
         .select('*')
         .eq('condominium_id', selectedCondominium)
         .order('period_year', { ascending: false })
         .order('period_month', { ascending: false });
-
+      
       if (error) throw error;
+      
       setBalances(data || []);
+      
+      // Cargar datos financieros para los gráficos
+      if (data && data.length > 0) {
+        await Promise.all([
+          fetchExpensePaymentsData(),
+          fetchProviderInvoicesData(),
+          fetchEmployeeCompensationsData()
+        ]);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar los balances');
+      console.error('Error al cargar balances:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar balances');
     } finally {
       setLoading(false);
     }
   };
-  
-  // Obtener pagos de expensas y actualizar el balance
-  const fetchExpensePayments = async () => {
+
+  // Función para obtener los pagos de expensas
+  const fetchExpensePaymentsData = async () => {
     if (!selectedCondominium) return;
     
     try {
-      // Obtener el balance actual
-      const { data: currentBalance, error: balanceError } = await supabase
-        .from('condominium_balances')
-        .select('*')
-        .eq('condominium_id', selectedCondominium)
-        .order('period_year', { ascending: false })
-        .order('period_month', { ascending: false })
-        .limit(1)
-        .single();
-      
-      if (balanceError && balanceError.code !== 'PGRST116') throw balanceError;
-      
-      // Si no hay balance, no podemos actualizar nada
-      if (!currentBalance) return;
-      
-      // Obtener pagos de expensas para este consorcio
-      const { data: payments, error: paymentsError } = await supabase
+      const { data, error } = await supabase
         .from('expense_payments')
         .select(`
           *,
           unit:units(number, owner_name)
         `)
         .eq('condominium_id', selectedCondominium)
-        .eq('payment_status', 'paid')
-        .order('payment_date', { ascending: false });
+        .eq('payment_status', 'paid');
       
-      if (paymentsError) throw paymentsError;
+      if (error) throw error;
       
-      // Guardar los pagos en el estado para mostrarlos en la interfaz
-      setExpensePayments(payments || []);
-      setShowPaymentsHistory(true);
+      setExpensePayments(data || []);
       
-      if (payments && payments.length > 0) {
-        // Calcular el total de ingresos por pagos de expensas
-        const totalIncome = payments.reduce((sum, payment) => sum + payment.amount, 0);
+      // Extraer años únicos para el selector
+      if (data && data.length > 0) {
+        const years = [...new Set(data.map(payment => payment.year))].sort((a, b) => b - a);
+        setAvailableYears(years);
         
-        // Actualizar el balance con los ingresos recalculados
-        const newFinalBalance = currentBalance.initial_balance + totalIncome - currentBalance.expenses;
+        // Establecer el año y mes más reciente como seleccionado por defecto
+        const latestPayment = data.sort((a, b) => {
+          if (a.year !== b.year) return b.year - a.year;
+          return b.month - a.month;
+        })[0];
         
-        // Actualizar el balance en la base de datos
-        const { error: updateError } = await supabase
-          .from('condominium_balances')
-          .update({
-            income: totalIncome,
-            final_balance: newFinalBalance,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', currentBalance.id);
-        
-        if (updateError) throw updateError;
-        
-        // Recargar los balances para reflejar los cambios
-        fetchBalances();
+        if (latestPayment) {
+          setSelectedYear(latestPayment.year);
+          setSelectedMonth(latestPayment.month);
+        }
       }
+      
+      // Filtrar pagos por período seleccionado
+      filterPaymentsByPeriod(data || []);
+      
+      // Calcular total de ingresos
+      const total = data?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
+      setTotalIncome(total);
     } catch (err) {
-      console.error('Error al procesar pagos de expensas:', err);
-      setError(err instanceof Error ? err.message : 'Error al procesar pagos de expensas');
+      console.error('Error al cargar pagos de expensas:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar pagos de expensas');
     }
   };
   
-  // Obtener pagos a empleados y actualizar el balance
-  const fetchEmployeePayments = async () => {
-    if (!selectedCondominium) return;
-    
-    try {
-      // Obtener el balance actual
-      const { data: currentBalance, error: balanceError } = await supabase
-        .from('condominium_balances')
-        .select('*')
-        .eq('condominium_id', selectedCondominium)
-        .order('period_year', { ascending: false })
-        .order('period_month', { ascending: false })
-        .limit(1)
-        .single();
-      
-      if (balanceError && balanceError.code !== 'PGRST116') throw balanceError;
-      
-      // Si no hay balance, no podemos actualizar nada
-      if (!currentBalance) return;
-      
-      // Obtener pagos a empleados para este consorcio
-      const { data: payments, error: paymentsError } = await supabase
-        .from('employee_payments')
-        .select(`
-          *,
-          employee:employees(name, position)
-        `)
-        .eq('condominium_id', selectedCondominium)
-        .eq('status', 'paid')
-        .order('payment_date', { ascending: false });
-      
-      if (paymentsError) throw paymentsError;
-      
-      // Guardar los pagos en el estado para mostrarlos en la interfaz
-      setEmployeePayments(payments || []);
-      setShowEmployeePaymentsHistory(true);
-      
-      // Obtener facturas de proveedores para calcular el total de gastos
-      const { data: invoices, error: invoicesError } = await supabase
-        .from('provider_invoices')
-        .select('*')
-        .eq('condominium_id', selectedCondominium)
-        .eq('status', 'paid')
-        .order('invoice_date', { ascending: false });
-      
-      if (invoicesError) throw invoicesError;
-      
-      // Calcular el total de egresos por pagos a empleados
-      const totalSalaries = payments && payments.length > 0 ?
-        payments.reduce((sum, payment) => sum + payment.total_amount, 0) : 0;
-      
-      // Calcular el total de egresos por facturas de proveedores
-      const totalInvoices = invoices && invoices.length > 0 ?
-        invoices.reduce((sum, invoice) => sum + invoice.amount, 0) : 0;
-      
-      // Calcular el total de egresos combinados
-      const totalExpenses = totalSalaries + totalInvoices;
-      
-      // Actualizar el balance con los egresos recalculados
-      const newFinalBalance = currentBalance.initial_balance + currentBalance.income - totalExpenses;
-      
-      // Actualizar el balance en la base de datos
-      const { error: updateError } = await supabase
-        .from('condominium_balances')
-        .update({
-          expenses: totalExpenses,
-          final_balance: newFinalBalance,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', currentBalance.id);
-      
-      if (updateError) throw updateError;
-      
-      // Recargar los balances para reflejar los cambios
-      fetchBalances();
-    } catch (err) {
-      console.error('Error al procesar pagos a empleados:', err);
-      setError(err instanceof Error ? err.message : 'Error al procesar pagos a empleados');
-    }
+  // Filtrar pagos por período seleccionado
+  const filterPaymentsByPeriod = (payments: ExpensePayment[]) => {
+    const filtered = payments.filter(payment => 
+      payment.year === selectedYear && payment.month === selectedMonth
+    );
+    setFilteredExpensePayments(filtered);
+    setShowPaymentsHistory(filtered.length > 0);
   };
   
-  // Obtener facturas de proveedores y actualizar el balance
-  const fetchProviderInvoices = async () => {
+  // Actualizar filtros cuando cambia el período seleccionado
+  useEffect(() => {
+    if (expensePayments.length > 0) {
+      filterPaymentsByPeriod(expensePayments);
+    }
+  }, [selectedYear, selectedMonth, expensePayments]);
+
+  // Función para obtener las facturas de proveedores
+  const fetchProviderInvoicesData = async () => {
     if (!selectedCondominium) return;
     
     try {
-      // Obtener el balance actual
-      const { data: currentBalance, error: balanceError } = await supabase
-        .from('condominium_balances')
-        .select('*')
-        .eq('condominium_id', selectedCondominium)
-        .order('period_year', { ascending: false })
-        .order('period_month', { ascending: false })
-        .limit(1)
-        .single();
-      
-      if (balanceError && balanceError.code !== 'PGRST116') throw balanceError;
-      
-      // Si no hay balance, no podemos actualizar nada
-      if (!currentBalance) return;
-      
-      // Obtener facturas de proveedores para este consorcio
-      const { data: invoices, error: invoicesError } = await supabase
+      const { data, error } = await supabase
         .from('provider_invoices')
         .select(`
           *,
           provider:providers(name)
         `)
         .eq('condominium_id', selectedCondominium)
-        .eq('status', 'paid')
-        .order('invoice_date', { ascending: false });
-      
-      if (invoicesError) throw invoicesError;
-      
-      // Guardar las facturas en el estado para mostrarlas en la interfaz
-      setProviderInvoices(invoices || []);
-      setShowInvoicesHistory(true);
-      
-      // Obtener pagos a empleados para calcular el total de gastos
-      const { data: employeePayments, error: employeePaymentsError } = await supabase
-        .from('employee_payments')
-        .select('*')
-        .eq('condominium_id', selectedCondominium)
         .eq('status', 'paid');
       
-      if (employeePaymentsError) throw employeePaymentsError;
+      if (error) throw error;
       
-      // Calcular el total de egresos por facturas de proveedores
-      const totalInvoices = invoices && invoices.length > 0 ?
-        invoices.reduce((sum, invoice) => sum + invoice.amount, 0) : 0;
+      setProviderInvoices(data || []);
       
-      // Calcular el total de egresos por pagos a empleados
-      const totalSalaries = employeePayments && employeePayments.length > 0 ?
-        employeePayments.reduce((sum, payment) => sum + payment.total_amount, 0) : 0;
+      // Si no tenemos años disponibles todavía (pueden venir de los pagos de expensas)
+      // extraemos los años únicos de las facturas
+      if (availableYears.length === 0 && data && data.length > 0) {
+        const years = [...new Set(data.map(invoice => invoice.year))].sort((a, b) => b - a);
+        setAvailableYears(years);
+        
+        // Establecer el año y mes más reciente como seleccionado por defecto
+        const latestInvoice = data.sort((a, b) => {
+          if (a.year !== b.year) return b.year - a.year;
+          return b.month - a.month;
+        })[0];
+        
+        if (latestInvoice) {
+          setSelectedYear(latestInvoice.year);
+          setSelectedMonth(latestInvoice.month);
+        }
+      }
       
-      // Calcular el total de egresos combinados
-      const totalExpenses = totalInvoices + totalSalaries;
+      // Filtrar facturas por período seleccionado
+      filterInvoicesByPeriod(data || []);
       
-      // Actualizar el balance con los egresos recalculados
-      const newFinalBalance = currentBalance.initial_balance + currentBalance.income - totalExpenses;
-      
-      // Actualizar el balance en la base de datos
-      const { error: updateError } = await supabase
-        .from('condominium_balances')
-        .update({
-          expenses: totalExpenses,
-          final_balance: newFinalBalance,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', currentBalance.id);
-      
-      if (updateError) throw updateError;
-      
-      // Recargar los balances para reflejar los cambios
-      fetchBalances();
+      // Calcular total de facturas
+      const total = data?.reduce((sum, invoice) => sum + invoice.amount, 0) || 0;
+      setTotalInvoices(total);
     } catch (err) {
-      console.error('Error al procesar facturas de proveedores:', err);
-      setError(err instanceof Error ? err.message : 'Error al procesar facturas de proveedores');
+      console.error('Error al cargar facturas de proveedores:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar facturas de proveedores');
     }
-  };
-
-  const handleCreateBalance = () => {
-    // Inicializar un nuevo balance
-    setFormData({
-      period_month: new Date().getMonth() + 1,
-      period_year: new Date().getFullYear(),
-      initial_balance: '',
-      income: '0',
-      expenses: '0',
-      final_balance: '0',
-      status: 'pendiente',
-      notes: ''
-    });
-    setEditingBalanceId(null);
-    setShowBalanceForm(true);
   };
   
-  const handleEditBalance = (balance: CondominiumBalance) => {
-    // Inicializar el formulario con los datos del balance a editar
-    setFormData({
-      period_month: balance.period_month,
-      period_year: balance.period_year,
-      initial_balance: balance.initial_balance.toString(),
-      income: balance.income.toString(),
-      expenses: balance.expenses.toString(),
-      final_balance: balance.final_balance.toString(),
-      status: balance.status,
-      notes: balance.notes || ''
-    });
-    setEditingBalanceId(balance.id);
-    setShowBalanceForm(true);
+  // Filtrar facturas por período seleccionado
+  const filterInvoicesByPeriod = (invoices: ProviderInvoice[]) => {
+    const filtered = invoices.filter(invoice => 
+      invoice.year === selectedYear && invoice.month === selectedMonth
+    );
+    setFilteredProviderInvoices(filtered);
+    setShowInvoicesHistory(filtered.length > 0);
   };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    
-    // Para campos numéricos, aseguramos que sean números válidos
-    if (['initial_balance', 'income', 'expenses'].includes(name)) {
-      // Permitimos números con hasta 2 decimales
-      const regex = /^-?\d*\.?\d{0,2}$/;
-      if (value === '' || regex.test(value)) {
-        setFormData(prev => {
-          const updatedForm = { ...prev, [name]: value };
-          
-          // Calcular automáticamente el saldo final
-          const initial = parseFloat(name === 'initial_balance' ? value : prev.initial_balance) || 0;
-          const income = parseFloat(name === 'income' ? value : prev.income) || 0;
-          const expenses = parseFloat(name === 'expenses' ? value : prev.expenses) || 0;
-          
-          const finalBalance = initial + income - expenses;
-          return { ...updatedForm, final_balance: finalBalance.toFixed(2) };
-        });
-      }
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
+  
+  // Actualizar filtros de facturas cuando cambia el período seleccionado
+  useEffect(() => {
+    if (providerInvoices.length > 0) {
+      filterInvoicesByPeriod(providerInvoices);
     }
-  };
+  }, [selectedYear, selectedMonth, providerInvoices]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Función para obtener las compensaciones de empleados
+  const fetchEmployeeCompensationsData = async () => {
+    if (!selectedCondominium) return;
     
     try {
-      // Convertir strings a números para los campos numéricos
-      const initialBalance = parseFloat(formData.initial_balance) || 0;
-      const income = parseFloat(formData.income) || 0;
-      const expenses = parseFloat(formData.expenses) || 0;
-      const finalBalance = parseFloat(formData.final_balance) || 0;
+      // Primero obtenemos los IDs de empleados asociados a este consorcio
+      const { data: employeeIds, error: employeeError } = await supabase
+        .from('employee_condominiums')
+        .select('employee_id')
+        .eq('condominium_id', selectedCondominium);
       
-      const balanceData = {
-        condominium_id: selectedCondominium,
-        period_month: formData.period_month,
-        period_year: formData.period_year,
-        initial_balance: initialBalance,
-        income: income,
-        expenses: expenses,
-        final_balance: finalBalance,
-        status: formData.status,
-        notes: formData.notes
-      };
-
-      let error;
-      let newBalanceId = editingBalanceId;
+      if (employeeError) throw employeeError;
       
-      if (editingBalanceId) {
-        // Actualizar balance existente
-        const { error: updateError } = await supabase
-          .from('condominium_balances')
-          .update(balanceData)
-          .eq('id', editingBalanceId);
-        
-        error = updateError;
-      } else {
-        // Insertar nuevo balance
-        const { data, error: insertError } = await supabase
-          .from('condominium_balances')
-          .insert(balanceData)
-          .select('id')
-          .single();
-        
-        error = insertError;
-        if (data) {
-          newBalanceId = data.id;
-        }
+      if (!employeeIds || employeeIds.length === 0) {
+        setEmployeeCompensations([]);
+        setFilteredEmployeeCompensations([]);
+        setTotalSalaries(0);
+        setShowCompensationsHistory(false);
+        return;
       }
-
+      
+      // Luego obtenemos las compensaciones de esos empleados
+      const { data, error } = await supabase
+        .from('employee_compensations')
+        .select(`
+          *,
+          employee:employees(name, position)
+        `)
+        .in('employee_id', employeeIds.map(e => e.employee_id));
+      
       if (error) throw error;
-
-      // Recargar los balances y ocultar el formulario
-      await fetchBalances();
-      setShowBalanceForm(false);
-      setEditingBalanceId(null);
       
-      // Seleccionar el balance recién creado o actualizado
-      if (newBalanceId) {
-        setSelectedBalance(newBalanceId);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar el balance');
-    }
-  };
-
-  const handleSelectCondominium = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedCondominium(e.target.value);
-  };
-
-  const handleDeleteBalance = async (id: string) => {
-    if (window.confirm('¿Está seguro que desea eliminar este balance?')) {
-      try {
-        // Primero eliminar las transacciones asociadas al balance
-        const { error: transactionsError } = await supabase
-          .from('balance_transactions')
-          .delete()
-          .eq('balance_id', id);
-
-        if (transactionsError) throw transactionsError;
-
-        // Luego eliminar el balance
-        const { error } = await supabase
-          .from('condominium_balances')
-          .delete()
-          .eq('id', id);
-
-        if (error) throw error;
+      setEmployeeCompensations(data || []);
+      
+      // Si no tenemos años disponibles todavía, extraemos los años únicos
+      if (availableYears.length === 0 && data && data.length > 0) {
+        const years = [...new Set(data.map(comp => comp.year))].sort((a, b) => b - a);
+        setAvailableYears(years);
         
-        // Si el balance eliminado era el seleccionado, deseleccionarlo
-        if (selectedBalance === id) {
-          setSelectedBalance(null);
+        // Establecer el año y mes más reciente como seleccionado por defecto
+        const latestComp = data.sort((a, b) => {
+          if (a.year !== b.year) return b.year - a.year;
+          return b.month - a.month;
+        })[0];
+        
+        if (latestComp) {
+          setSelectedYear(latestComp.year);
+          setSelectedMonth(latestComp.month);
         }
-        
-        await fetchBalances();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Error al eliminar el balance');
       }
+      
+      // Filtrar compensaciones por período seleccionado
+      filterCompensationsByPeriod(data || []);
+      
+      // Calcular total de salarios (solo de las compensaciones pagadas)
+      const paidCompensations = data?.filter(comp => comp.payment_status === 'paid') || [];
+      const total = paidCompensations.reduce((sum, comp) => sum + comp.total_compensation, 0) || 0;
+      setTotalSalaries(total);
+    } catch (err) {
+      console.error('Error al cargar compensaciones de empleados:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar compensaciones de empleados');
     }
   };
-
-  if (loading && condominiums.length === 0) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-700"></div>
-      </div>
+  
+  // Filtrar compensaciones por período seleccionado
+  const filterCompensationsByPeriod = (compensations: EmployeeCompensation[]) => {
+    const filtered = compensations.filter(comp => 
+      comp.year === selectedYear && comp.month === selectedMonth
     );
-  }
-      
+    setFilteredEmployeeCompensations(filtered);
+    setShowCompensationsHistory(filtered.length > 0);
+  };
+  
+  // Actualizar filtros de compensaciones cuando cambia el período seleccionado
+  useEffect(() => {
+    if (employeeCompensations.length > 0) {
+      filterCompensationsByPeriod(employeeCompensations);
+    }
+  }, [selectedYear, selectedMonth, employeeCompensations]);
+
+  // Formatear números como moneda argentina
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS'
+    }).format(value);
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/consorcios')}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Volver
-          </Button>
-        </div>
-        <h1 className="text-2xl font-semibold text-gray-900">Balances de Consorcios</h1>
+    <div className="container mx-auto p-4">
+      <div className="flex items-center mb-6">
+        <Button variant="ghost" className="mr-2" onClick={() => window.history.back()}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Volver
+        </Button>
+        <h1 className="text-2xl font-bold">Balance del Consorcio</h1>
       </div>
 
+      {/* Selector de consorcio */}
+      <div className="mb-6">
+        <label htmlFor="condominium-select" className="block text-sm font-medium mb-2">
+          Seleccionar Consorcio
+        </label>
+        <select
+          id="condominium-select"
+          className="w-full p-2 border rounded"
+          value={selectedCondominium || ''}
+          onChange={(e) => setSelectedCondominium(e.target.value)}
+        >
+          <option value="">Seleccione un consorcio</option>
+          {condominiums.map((condominium) => (
+            <option key={condominium.id} value={condominium.id}>
+              {condominium.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Mostrar mensaje de error si existe */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-          {error}
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          <p>{error}</p>
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Seleccionar Consorcio</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <label htmlFor="condominium" className="block text-sm font-medium text-gray-700 mb-1">
-                Consorcio
+      {/* Tabla de balances */}
+      {balances.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold mb-4">Balances Mensuales</h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full bg-white border">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="py-2 px-4 border">Período</th>
+                  <th className="py-2 px-4 border">Saldo Inicial</th>
+                  <th className="py-2 px-4 border">Ingresos</th>
+                  <th className="py-2 px-4 border">Egresos</th>
+                  <th className="py-2 px-4 border">Saldo Final</th>
+                  <th className="py-2 px-4 border">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {balances.map((balance) => (
+                  <tr key={balance.id}>
+                    <td className="py-2 px-4 border">
+                      {MONTHS[balance.period_month - 1]} {balance.period_year}
+                    </td>
+                    <td className="py-2 px-4 border">{formatCurrency(balance.initial_balance)}</td>
+                    <td className="py-2 px-4 border">{formatCurrency(balance.income)}</td>
+                    <td className="py-2 px-4 border">{formatCurrency(balance.expenses)}</td>
+                    <td className="py-2 px-4 border">{formatCurrency(balance.final_balance)}</td>
+                    <td className="py-2 px-4 border">
+                      <span className={`px-2 py-1 rounded ${
+                        balance.status === 'open' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {balance.status === 'open' ? 'Abierto' : 'Cerrado'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Selectores de período para filtrar pagos y facturas */}
+      {(expensePayments.length > 0 || providerInvoices.length > 0) && (
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold mb-4">Movimientos por Período</h2>
+          <div className="flex gap-4 mb-4">
+            <div className="w-1/2">
+              <label htmlFor="year-select" className="block text-sm font-medium mb-2">
+                Año
               </label>
               <select
-                id="condominium"
-                value={selectedCondominium}
-                onChange={handleSelectCondominium}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                id="year-select"
+                className="w-full p-2 border rounded"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(Number(e.target.value))}
               >
-                <option value="">Seleccione un consorcio</option>
-                {condominiums.map(condo => (
-                  <option key={condo.id} value={condo.id}>
-                    {condo.name}
+                {availableYears.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="w-1/2">
+              <label htmlFor="month-select" className="block text-sm font-medium mb-2">
+                Mes
+              </label>
+              <select
+                id="month-select"
+                className="w-full p-2 border rounded"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              >
+                {MONTHS.map((month, index) => (
+                  <option key={index} value={index + 1}>
+                    {month}
                   </option>
                 ))}
               </select>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {balances.length > 0 && (
-        <div className="mt-6">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mes</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Saldo Inicial</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ingresos</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Egresos</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Saldo Final</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {balances.map(balance => (
-                <tr
-                  key={balance.id}
-                  className={`${selectedBalance === balance.id ? 'bg-blue-50' : ''} hover:bg-gray-50 cursor-pointer`}
-                  onClick={() => setSelectedBalance(balance.id)}
-                >
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {MONTHS[balance.period_month - 1]} {balance.period_year}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatCurrency(balance.initial_balance)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
-                    {formatCurrency(balance.income)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">
-                    {formatCurrency(balance.expenses)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {formatCurrency(balance.final_balance)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge className={STATUS_COLORS[balance.status]}>
-                      {STATUS_LABELS[balance.status]}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditBalance(balance);
-                        }}
-                        className="text-blue-600 hover:text-blue-900 mr-2"
-                      >
-                        <Edit className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteBalance(balance.id);
-                        }}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      
-      {/* Controles de filtrado por período */}
-      {(showPaymentsHistory || showInvoicesHistory || showEmployeePaymentsHistory) && (
-        <div className="mt-6 mb-4">
-          <Card>
-            <CardContent className="py-4">
-              <div className="flex items-center space-x-4">
-                <div>
-                  <label htmlFor="filterYear" className="block text-sm font-medium text-gray-700 mb-1">
-                    Año
-                  </label>
-                  <select
-                    id="filterYear"
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                    className="rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                  >
-                    {availableYears.map(year => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
+          
+          {/* Tabla de pagos de expensas (INGRESOS) */}
+          {showPaymentsHistory && (
+            <CollapsibleSection
+              title="Ingresos: Pagos de Expensas"
+              isExpanded={expandedSections.payments}
+              onToggle={() => setExpandedSections(prev => ({ ...prev, payments: !prev.payments }))}
+              bgColor="bg-green-100"
+              textColor="text-green-600"
+            >
+              <table className="min-w-full bg-white border">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="py-2 px-4 border">Unidad</th>
+                    <th className="py-2 px-4 border">Propietario</th>
+                    <th className="py-2 px-4 border">Fecha de Pago</th>
+                    <th className="py-2 px-4 border">Monto</th>
+                    <th className="py-2 px-4 border">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredExpensePayments.map((payment) => (
+                    <tr key={payment.id} className={
+                      payment.payment_status === 'paid' ? 'bg-green-50' : 
+                      payment.payment_status === 'partial' ? 'bg-yellow-50' : 'bg-red-50'
+                    }>
+                      <td className="py-2 px-4 border">{payment.unit?.number}</td>
+                      <td className="py-2 px-4 border">{payment.unit?.owner_name}</td>
+                      <td className="py-2 px-4 border">
+                        {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('es-AR') : '-'}
+                      </td>
+                      <td className="py-2 px-4 border">{formatCurrency(payment.amount)}</td>
+                      <td className="py-2 px-4 border">
+                        <span className={
+                          `px-2 py-1 rounded ${
+                            payment.payment_status === 'paid' ? 'bg-green-100 text-green-800' : 
+                            payment.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                          }`
+                        }>
+                          {payment.payment_status === 'paid' ? 'Pagado' : 
+                           payment.payment_status === 'partial' ? 'Parcial' : 'No Pagado'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              
+              {filteredExpensePayments.length === 0 && (
+                <div className="text-center py-4 text-gray-500">
+                  No hay pagos registrados para este período.
                 </div>
-                <div>
-                  <label htmlFor="filterMonth" className="block text-sm font-medium text-gray-700 mb-1">
-                    Mes
-                  </label>
-                  <select
-                    id="filterMonth"
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                    className="rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                  >
-                    <option value={0}>Todos</option>
-                    {MONTHS.map((month, index) => (
-                      <option key={index} value={index + 1}>{month}</option>
-                    ))}
-                  </select>
+              )}
+              
+              {filteredExpensePayments.length > 0 && (
+                <div className="mt-2 text-right font-bold text-green-600">
+                  Total Ingresos: {formatCurrency(filteredExpensePayments.reduce((sum, payment) => sum + payment.amount, 0))}
+                </div>
+              )}
+            </CollapsibleSection>
+          )}
+          
+          {/* Tabla de facturas de proveedores (EGRESOS) */}
+          {showInvoicesHistory && (
+            <CollapsibleSection
+              title="Egresos: Facturas de Proveedores"
+              isExpanded={expandedSections.invoices}
+              onToggle={() => setExpandedSections(prev => ({ ...prev, invoices: !prev.invoices }))}
+              bgColor="bg-red-100"
+              textColor="text-red-600"
+            >
+              <table className="min-w-full bg-white border">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="py-2 px-4 border">Proveedor</th>
+                    <th className="py-2 px-4 border">Número de Factura</th>
+                    <th className="py-2 px-4 border">Fecha</th>
+                    <th className="py-2 px-4 border">Categoría</th>
+                    <th className="py-2 px-4 border">Descripción</th>
+                    <th className="py-2 px-4 border">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProviderInvoices.map((invoice) => (
+                    <tr key={invoice.id} className="bg-red-50">
+                      <td className="py-2 px-4 border">{invoice.provider?.name}</td>
+                      <td className="py-2 px-4 border">{invoice.invoice_number}</td>
+                      <td className="py-2 px-4 border">
+                        {invoice.invoice_date ? new Date(invoice.invoice_date).toLocaleDateString('es-AR') : '-'}
+                      </td>
+                      <td className="py-2 px-4 border">{invoice.category}</td>
+                      <td className="py-2 px-4 border">{invoice.description}</td>
+                      <td className="py-2 px-4 border">{formatCurrency(invoice.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              
+              {filteredProviderInvoices.length === 0 && (
+                <div className="text-center py-4 text-gray-500">
+                  No hay facturas registradas para este período.
+                </div>
+              )}
+              
+              {filteredProviderInvoices.length > 0 && (
+                <div className="mt-2 text-right font-bold text-red-600">
+                  Total Egresos: {formatCurrency(filteredProviderInvoices.reduce((sum, invoice) => sum + invoice.amount, 0))}
+                </div>
+              )}
+            </CollapsibleSection>
+          )}
+          
+          {/* Tabla de compensaciones de empleados (EGRESOS) */}
+          {showCompensationsHistory && (
+            <CollapsibleSection
+              title="Egresos: Compensaciones de Empleados"
+              isExpanded={expandedSections.compensations}
+              onToggle={() => setExpandedSections(prev => ({ ...prev, compensations: !prev.compensations }))}
+              bgColor="bg-red-100"
+              textColor="text-red-600"
+            >
+              <table className="min-w-full bg-white border">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="py-2 px-4 border">Empleado</th>
+                    <th className="py-2 px-4 border">Cargo</th>
+                    <th className="py-2 px-4 border">Salario Neto</th>
+                    <th className="py-2 px-4 border">Seguridad Social</th>
+                    <th className="py-2 px-4 border">Aporte Sindical</th>
+                    <th className="py-2 px-4 border">Otras Deducciones</th>
+                    <th className="py-2 px-4 border">Compensación Total</th>
+                    <th className="py-2 px-4 border">Estado</th>
+                    <th className="py-2 px-4 border">Fecha de Pago</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEmployeeCompensations.map((comp) => (
+                    <tr key={comp.id} className="bg-red-50">
+                      <td className="py-2 px-4 border">{comp.employee?.name}</td>
+                      <td className="py-2 px-4 border">{comp.employee?.position}</td>
+                      <td className="py-2 px-4 border">{formatCurrency(comp.net_salary)}</td>
+                      <td className="py-2 px-4 border">{formatCurrency(comp.social_security)}</td>
+                      <td className="py-2 px-4 border">{formatCurrency(comp.union_contribution)}</td>
+                      <td className="py-2 px-4 border">{formatCurrency(comp.other_deductions)}</td>
+                      <td className="py-2 px-4 border font-bold">{formatCurrency(comp.total_compensation)}</td>
+                      <td className="py-2 px-4 border">
+                        <span className={
+                          `px-2 py-1 rounded ${
+                            comp.payment_status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`
+                        }>
+                          {comp.payment_status === 'paid' ? 'Pagado' : 'Pendiente'}
+                        </span>
+                      </td>
+                      <td className="py-2 px-4 border">
+                        {comp.payment_date ? new Date(comp.payment_date).toLocaleDateString('es-AR') : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              
+              {filteredEmployeeCompensations.length === 0 && (
+                <div className="text-center py-4 text-gray-500">
+                  No hay compensaciones registradas para este período.
+                </div>
+              )}
+              
+              {filteredEmployeeCompensations.length > 0 && (
+                <div className="mt-2 text-right font-bold text-red-600">
+                  Total Compensaciones: {formatCurrency(filteredEmployeeCompensations.reduce((sum, comp) => sum + comp.total_compensation, 0))}
+                </div>
+              )}
+            </CollapsibleSection>
+          )}
+          
+          {/* Resumen del período */}
+          {(showPaymentsHistory || showInvoicesHistory || showCompensationsHistory) && (
+            <div className="p-4 bg-gray-100 rounded-lg">
+              <h3 className="text-lg font-semibold mb-2">Resumen del Período: {MONTHS[selectedMonth - 1]} {selectedYear}</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-3 bg-green-100 rounded-lg">
+                  <p className="text-sm text-green-800">Total Ingresos</p>
+                  <p className="text-xl font-bold text-green-600">
+                    {formatCurrency(filteredExpensePayments.reduce((sum, payment) => sum + payment.amount, 0))}
+                  </p>
+                </div>
+                <div className="p-3 bg-red-100 rounded-lg">
+                  <p className="text-sm text-red-800">Total Egresos</p>
+                  <p className="text-xl font-bold text-red-600">
+                    {formatCurrency(
+                      filteredProviderInvoices.reduce((sum, invoice) => sum + invoice.amount, 0) +
+                      filteredEmployeeCompensations.filter(comp => comp.payment_status === 'paid')
+                        .reduce((sum, comp) => sum + comp.total_compensation, 0)
+                    )}
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <p className="text-sm text-blue-800">Balance del Período</p>
+                  <p className="text-xl font-bold text-blue-600">
+                    {formatCurrency(
+                      filteredExpensePayments.reduce((sum, payment) => sum + payment.amount, 0) - 
+                      (filteredProviderInvoices.reduce((sum, invoice) => sum + invoice.amount, 0) +
+                       filteredEmployeeCompensations.filter(comp => comp.payment_status === 'paid')
+                         .reduce((sum, comp) => sum + comp.total_compensation, 0))
+                    )}
+                  </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          )}
         </div>
-      )}
-      
-      {/* Historial de pagos de expensas */}
-      {showPaymentsHistory && expensePayments.length > 0 && (
-        <CollapsibleSection 
-          title="Registro de Ingresos por Cobro de Expensas" 
-          onClose={() => setShowPaymentsHistory(false)}
-          initialExpanded={expandedSections.income}
-          totalAmount={totalIncome}
-          isIncome={true}
-          sectionType="income"
-        >
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Concepto</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unidad</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Propietario</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Monto</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filterByPeriod(expensePayments).map((payment) => (
-                  <tr key={payment.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(payment.payment_date).toLocaleDateString('es-AR')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      Cobro de Expensa
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {payment.unit?.number || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {payment.unit?.owner_name || 'No especificado'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {MONTHS[payment.month - 1]} {payment.year}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
-                      {formatCurrency(payment.amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Badge className="bg-green-100 text-green-800">
-                        Pagado
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CollapsibleSection>
-      )}
-      
-      {/* Historial de pagos a empleados */}
-      {showEmployeePaymentsHistory && employeePayments.length > 0 && (
-        <CollapsibleSection 
-          title="Registro de Egresos por Pago de Sueldos" 
-          onClose={() => setShowEmployeePaymentsHistory(false)}
-          initialExpanded={expandedSections.salaries}
-          totalAmount={totalSalaries}
-          isIncome={false}
-          sectionType="salaries"
-        >
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empleado</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cargo</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Salario Base</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filterByPeriod(employeePayments).map((payment) => (
-                  <tr key={payment.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(payment.payment_date).toLocaleDateString('es-AR')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {payment.employee?.name || 'No especificado'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {payment.employee?.position || 'No especificado'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {MONTHS[payment.month - 1]} {payment.year}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatCurrency(payment.base_salary)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">
-                      {formatCurrency(payment.total_amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Badge className="bg-blue-100 text-blue-800">
-                        Pagado
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CollapsibleSection>
-      )}
-      
-      {/* Historial de facturas de proveedores */}
-      {showInvoicesHistory && providerInvoices.length > 0 && (
-        <CollapsibleSection 
-          title="Registro de Egresos por Pago de Facturas" 
-          onClose={() => setShowInvoicesHistory(false)}
-          initialExpanded={expandedSections.invoices}
-          totalAmount={totalInvoices}
-          isIncome={false}
-          sectionType="expenses"
-        >
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Factura</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Descripción</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Período</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Monto</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filterByPeriod(providerInvoices).map((invoice) => (
-                  <tr key={invoice.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(invoice.invoice_date).toLocaleDateString('es-AR')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {invoice.provider?.name || 'No especificado'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {invoice.invoice_number}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {invoice.description}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {MONTHS[invoice.month - 1]} {invoice.year}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">
-                      {formatCurrency(invoice.amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Badge className={invoice.status === 'paid' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}>
-                        {invoice.status === 'paid' ? 'Pagado' : 'Pendiente'}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CollapsibleSection>
       )}
       
       {/* Gráficos de balance */}
@@ -1022,4 +792,6 @@ export default function CondominiumBalances() {
       )}
     </div>
   );
-}
+};
+
+export default CondominiumBalances;
