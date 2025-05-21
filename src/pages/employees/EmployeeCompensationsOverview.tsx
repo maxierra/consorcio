@@ -10,7 +10,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { formatCurrency } from '../../lib/utils';
-import Select from '../../components/ui/Select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select';
 
 interface Condominium {
   id: string;
@@ -417,16 +417,17 @@ export default function EmployeeCompensationsOverview() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Consorcio</label>
-              <Select
-                value={selectedCondominium}
-                onChange={(e) => setSelectedCondominium(e.target.value)}
-                className="w-full"
-              >
-                {condominiums.map((condo) => (
-                  <option key={condo.id} value={condo.id}>
-                    {condo.name}
-                  </option>
-                ))}
+              <Select value={selectedCondominium} onValueChange={setSelectedCondominium}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar consorcio" />
+                </SelectTrigger>
+                <SelectContent>
+                  {condominiums.map((condo) => (
+                    <SelectItem key={condo.id} value={condo.id}>
+                      {condo.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             
@@ -446,16 +447,17 @@ export default function EmployeeCompensationsOverview() {
             
             <div>
               <label className="block text-sm font-medium mb-1">Estado</label>
-              <Select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className="w-full"
-              >
-                {PAYMENT_STATUS.map((status) => (
-                  <option key={status.value} value={status.value}>
-                    {status.label}
-                  </option>
-                ))}
+              <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccionar estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_STATUS.map((status) => (
+                    <SelectItem key={status.value} value={status.value}>
+                      {status.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             

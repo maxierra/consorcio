@@ -35,6 +35,7 @@ import FeeDetails from './pages/fees/FeeDetails';
 import Payments from './pages/payments/Payments';
 import Reports from './pages/reports/Reports';
 import Settings from './pages/settings/Settings';
+import UnitTextImporter from './pages/condominiums/UnitTextImporter';
 
 // Types
 import { User } from './types/auth';
@@ -104,6 +105,7 @@ function App() {
               <Route path="/consorcios" element={<Condominiums />} />
               <Route path="/consorcios/new" element={<CreateCondominium />} />
               <Route path="/consorcios/:id" element={<CondominiumDetails />} />
+              <Route path="/consorcios/:id/units/import-text" element={<UnitTextImporter />} />
               <Route path="/consorcios-balances" element={<CondominiumBalances />} />
               <Route path="/expenses" element={<Expenses />} />
               <Route path="/expenses/:id" element={<ExpenseDetails />} />

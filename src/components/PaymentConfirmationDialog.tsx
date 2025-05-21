@@ -29,21 +29,38 @@ export default function PaymentConfirmationDialog({
   suggestedAmount
 }: PaymentConfirmationDialogProps) {
   const [amount, setAmount] = useState<number>(suggestedAmount);
+  const [amountStr, setAmountStr] = useState<string>(suggestedAmount?.toString() || '0');
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (open) {
-      setAmount(suggestedAmount);
+      // Asegurarse de que el monto sugerido sea un número válido
+      const validAmount = typeof suggestedAmount === 'number' && !isNaN(suggestedAmount) ? suggestedAmount : 0;
+      console.log('Monto sugerido recibido:', validAmount);
+      setAmount(validAmount);
+      
+      // Formatear el número con máximo 2 decimales para el input
+      // Si el número es entero, no mostrar decimales
+      const formattedValue = validAmount % 1 === 0 
+        ? validAmount.toString() 
+        : validAmount.toFixed(2);
+        
+      setAmountStr(formattedValue);
       setError('');
     }
   }, [open, suggestedAmount]);
 
   const handleConfirm = () => {
-    if (amount <= 0) {
+    // Convertir el string a número para validación
+    const numAmount = parseFloat(amountStr);
+    
+    if (isNaN(numAmount) || numAmount <= 0) {
       setError('El monto debe ser mayor a cero');
       return;
     }
-    onConfirm(amount);
+    
+    // Pasar el valor numérico exacto
+    onConfirm(numAmount);
   };
 
   return (
@@ -66,16 +83,43 @@ export default function PaymentConfirmationDialog({
           </Box>
           <Box>
             <Typography variant="subtitle2" gutterBottom>
-              Monto sugerido: ${suggestedAmount.toFixed(2)}
+              Monto sugerido: ${(typeof suggestedAmount === 'number' && !isNaN(suggestedAmount) ? suggestedAmount : 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Typography>
             <TextField
               label="Monto a pagar"
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+              type="text"
+              value={amountStr}
+              onChange={(e) => {
+                // Permitir solo números y punto decimal
+                let value = e.target.value.replace(/[^0-9.]/g, '');
+                
+                // Asegurar que solo haya un punto decimal
+                const parts = value.split('.');
+                if (parts.length > 2) {
+                  value = parts[0] + '.' + parts.slice(1).join('');
+                }
+                
+                // Limitar a 2 decimales si hay punto decimal
+                if (value.includes('.')) {
+                  const [whole, decimal] = value.split('.');
+                  if (decimal.length > 2) {
+                    value = whole + '.' + decimal.substring(0, 2);
+                  }
+                }
+                
+                setAmountStr(value);
+                
+                // Actualizar también el valor numérico para el formato
+                const numValue = parseFloat(value);
+                if (!isNaN(numValue)) {
+                  setAmount(numValue);
+                }
+              }}
               fullWidth
-              InputProps={{ inputProps: { min: 0, step: 0.01 } }}
-              helperText="Puede modificar el monto si el propietario pagó un importe diferente"
+              InputProps={{ 
+                startAdornment: <span style={{ marginRight: '8px' }}>$</span>
+              }}
+              helperText={`Monto formateado: $${(parseFloat(amountStr) || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
             />
           </Box>
         </Box>

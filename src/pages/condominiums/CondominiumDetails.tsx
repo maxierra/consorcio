@@ -6,7 +6,7 @@ import type { Unit } from '../../types/unit';
 import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
-import { ArrowLeft, Plus, Building, Trash2, Edit, Pencil, Upload, Ban as Bank } from 'lucide-react';
+import { ArrowLeft, Plus, Building, Trash2, Edit, Pencil, Upload, Ban as Bank, FileText } from 'lucide-react';
 import ImportUnitsModal from '../../components/ui/ImportUnitsModal';
 import AccountOpeningTable from '../../components/AccountOpeningTable';
 
@@ -581,9 +581,18 @@ export default function CondominiumDetails() {
               <Button
                 variant="outline"
                 onClick={() => setShowImportModal(true)}
+                className="mr-2"
               >
                 <Upload className="h-4 w-4 mr-2" />
                 Importar desde Excel
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate(`/consorcios/${id}/units/import-text`)}
+                className="mr-2"
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Importar desde Texto
               </Button>
               <Button onClick={() => {
                 setEditingUnitId(null);

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { Building, Calendar, Settings } from 'lucide-react';
-import Select from '../../components/ui/Select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/Select';
 import InterestConfigDialog from '../../components/InterestConfigDialog';
 import PaymentConfirmationDialog from '../../components/PaymentConfirmationDialog';
 
@@ -82,7 +82,6 @@ export default function Fees() {
   const [interestConfigOpen, setInterestConfigOpen] = useState(false);
   // Usamos payments para actualizar el estado de las unidades
   const [, setPayments] = useState<ExpensePayment[]>([]);
-  const [interestDialogOpen, setInterestDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
   const [suggestedAmount, setSuggestedAmount] = useState(0);
@@ -260,8 +259,8 @@ export default function Fees() {
         const defaultCategories = categories.length === 0;
         console.log(`Unidad ${unit.number} - Usando categorías por defecto: ${defaultCategories}`);
         
-        // Calcular el coeficiente de la unidad
-        const coefficient = unit.coefficient / 100;
+        // Usar el coeficiente directamente sin dividir por 100
+        const coefficient = unit.coefficient;
         console.log(`Unidad ${unit.number} - Coeficiente: ${coefficient}`);
         
         // Calcular los montos por categoría según las categorías asignadas y el coeficiente
@@ -895,10 +894,21 @@ export default function Fees() {
     return years;
   };
   
-  const openPaymentDialog = (unit: Unit, amount: number) => {
+  const openPaymentDialog = (unit: Unit) => {
     setSelectedUnit(unit);
-    // Usar el monto total adeudado (saldo anterior + cuota actual)
-    setSuggestedAmount(unit.total_due || amount);
+    
+    // Calcular el monto total a pagar sumando todas las categorías
+    const totalAmount = (
+      (unit.ordinariaA_amount || 0) + 
+      (unit.ordinariaB_amount || 0) + 
+      (unit.aysa_amount || 0) + 
+      (unit.previous_balance || 0)
+    );
+    
+    // Usar el monto calculado directamente de las categorías
+    setSuggestedAmount(totalAmount);
+    console.log('Monto sugerido para pago:', totalAmount);
+    
     setPaymentDialogOpen(true);
   };
   
@@ -1247,17 +1257,18 @@ export default function Fees() {
               <Building className="inline-block w-4 h-4 mr-2" />
               Consorcio
             </label>
-            <Select
-              value={selectedCondominium}
-              onChange={(e) => setSelectedCondominium(e.target.value)}
-              className="w-full"
-            >
-              <option value="">Seleccione un consorcio</option>
-              {condominiums.map((condominium) => (
-                <option key={condominium.id} value={condominium.id}>
-                  {condominium.name}
-                </option>
-              ))}
+            <Select value={selectedCondominium} onValueChange={setSelectedCondominium}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar consorcio" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="placeholder">Seleccione un consorcio</SelectItem>
+                {condominiums.map((condominium) => (
+                  <SelectItem key={condominium.id} value={condominium.id}>
+                    {condominium.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
 
@@ -1266,16 +1277,17 @@ export default function Fees() {
               <Calendar className="inline-block w-4 h-4 mr-2" />
               Mes
             </label>
-            <Select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
-              className="w-full"
-            >
-              {MONTHS.map((month, index) => (
-                <option key={index + 1} value={index + 1}>
-                  {month}
-                </option>
-              ))}
+            <Select value={selectedMonth.toString()} onValueChange={(value) => setSelectedMonth(Number(value))}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar mes" />
+              </SelectTrigger>
+              <SelectContent>
+                {MONTHS.map((month, index) => (
+                  <SelectItem key={index + 1} value={(index + 1).toString()}>
+                    {month}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
 
@@ -1284,16 +1296,17 @@ export default function Fees() {
               <Calendar className="inline-block w-4 h-4 mr-2" />
               Año
             </label>
-            <Select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="w-full"
-            >
-              {generateYearOptions().map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
+            <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(Number(value))}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Seleccionar año" />
+              </SelectTrigger>
+              <SelectContent>
+                {generateYearOptions().map((year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
         </div>
@@ -1491,7 +1504,8 @@ export default function Fees() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {units.map((unit) => {
                     const fee = fees[0];
-                    const unitAmount = fee.total_amount * (unit.coefficient / 100);
+                    // Usar el coeficiente directamente sin dividir por 100
+                    const unitAmount = fee.total_amount * unit.coefficient / 100;
                     return (
                       <tr key={unit.id} className={unit.paid ? 'bg-green-50' : (unit.debt_registered || (!unit.paid && periodClosed)) ? 'bg-red-50' : ''}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -1508,25 +1522,25 @@ export default function Fees() {
                         </td>
                         {/* Monto Ordinarias A */}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-700 font-medium">
-                          ${(unit.ordinariaA_amount || 0).toFixed(2)}
+                          ${(unit.ordinariaA_amount || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         {/* Monto Ordinarias B */}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-green-700 font-medium">
-                          ${(unit.ordinariaB_amount || 0).toFixed(2)}
+                          ${(unit.ordinariaB_amount || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         {/* Monto Aysa */}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-purple-700 font-medium">
-                          ${(unit.aysa_amount || 0).toFixed(2)}
+                          ${(unit.aysa_amount || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         {/* Saldo anterior */}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           <span className={unit.previous_balance && unit.previous_balance > 0 ? 'text-red-600 font-semibold' : ''}>
-                            ${(unit.previous_balance || 0).toFixed(2)}
+                            ${(unit.previous_balance || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         </td>
                         {/* Total a pagar */}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
-                          ${(unit.total_due || ((unit.ordinariaA_amount || 0) + (unit.ordinariaB_amount || 0) + (unit.aysa_amount || 0) + (unit.previous_balance || 0))).toFixed(2)}
+                          ${(unit.total_due || ((unit.ordinariaA_amount || 0) + (unit.ordinariaB_amount || 0) + (unit.aysa_amount || 0) + (unit.previous_balance || 0))).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {savingPayment === unit.id ? (
@@ -1567,7 +1581,7 @@ export default function Fees() {
                             <div className="flex items-center space-x-2">
                               {!periodClosed ? (
                                 <button
-                                  onClick={() => openPaymentDialog(unit, unitAmount)}
+                                  onClick={() => openPaymentDialog(unit)}
                                   className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
                                 >
                                   {unit.previous_balance && unit.previous_balance > 0 ? 'Regularizar deuda' : 'Registrar pago'}
